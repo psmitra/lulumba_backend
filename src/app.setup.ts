@@ -1,8 +1,8 @@
 import type { EnvironmentVariables } from '@common/config/env.validation.js';
 import { Environment } from '@common/enums/environment.enum.js';
+import { setupSwagger } from '@common/swagger/swagger.setup.js';
 import { CSRF_HEADER } from '@modules/auth/auth.constants.js';
 import type { NestExpressApplication } from '@nestjs/platform-express';
-import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import cookieParser from 'cookie-parser';
 import type { NextFunction, Request, Response } from 'express';
 import helmet from 'helmet';
@@ -35,14 +35,7 @@ export function configureApp(
   });
 
   if (!production) {
-    const document = SwaggerModule.createDocument(
-      app,
-      new DocumentBuilder()
-        .setTitle(`${env.APP_NAME} API`)
-        .addBearerAuth()
-        .build(),
-    );
-    SwaggerModule.setup('docs', app, document);
+    setupSwagger(app, env);
   }
 }
 

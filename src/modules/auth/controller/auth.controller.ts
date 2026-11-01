@@ -1,7 +1,12 @@
 import type { EnvironmentVariables } from '@common/config/env.validation.js';
 import type { ApiResponse } from '@common/response/response.interface.js';
 import { successResponse } from '@common/response/response.util.js';
-import type { ProfileResponseDto } from '@modules/profiles/dto/profile-response.dto.js';
+import {
+  ApiErrorResponses,
+  ApiSuccessResponse,
+} from '@common/swagger/swagger.decorators.js';
+import { SWAGGER_AUTH } from '@common/swagger/swagger.setup.js';
+import { ProfileResponseDto } from '@modules/profiles/dto/profile-response.dto.js';
 import {
   BadRequestException,
   Body,
@@ -17,23 +22,33 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBody,
+  ApiConsumes,
+  ApiExcludeEndpoint,
+  ApiFoundResponse,
+  ApiNoContentResponse,
+  ApiOkResponse,
+  ApiOperation,
+  ApiSecurity,
+  ApiTags,
+} from '@nestjs/swagger';
 import type { CookieOptions, Request, Response } from 'express';
-import { OAUTH_COOKIE, REFRESH_COOKIE } from '../auth.constants.js';
+import {
+  CSRF_HEADER,
+  OAUTH_COOKIE,
+  REFRESH_COOKIE,
+} from '../auth.constants.js';
 import { CurrentAuth } from '../decorators/current-auth.decorator.js';
 import { Public } from '../decorators/public.decorator.js';
+import { AccessTokenResponseDto } from '../dto/access-token-response.dto.js';
 import type { TokenSet } from '../ghanaworks/ghanaworks.client.js';
 import { CsrfGuard } from '../guards/csrf.guard.js';
 import type { AuthContext } from '../interfaces/auth-context.interface.js';
 import { AuthService } from '../service/auth.service.js';
 
-export interface AccessTokenResponse {
-  accessToken: string;
-  expiresIn: number;
-}
-
 @ApiTags('auth')
-@ApiBearerAuth()
+@ApiErrorResponses(HttpStatus.TOO_MANY_REQUESTS)
 @Controller('auth')
 export class AuthController {
   private readonly frontendUrl: string;
@@ -50,6 +65,12 @@ export class AuthController {
   /** Step 1: the "Sign in" link. Redirects to GhanaWorks. */
   @Public()
   @Get('login')
+  @ApiOperation({
+    summary: 'Start GhanaWorks sign-in',
+    description:
+      'Open in the browser (not via "Try it out"): redirects to GhanaWorks.',
+  })
+  @ApiFoundResponse({ description: 'Redirect to the GhanaWorks login page' })
   login(@Res() res: Response): void {
     const { authorizeUrl, oauthCookie } = this.auth.startLogin();
     res.cookie(OAUTH_COOKIE.name, oauthCookie, this.cookie(OAUTH_COOKIE));
@@ -63,6 +84,7 @@ export class AuthController {
    */
   @Public()
   @Get('callback')
+  @ApiExcludeEndpoint()
   async callback(
     @Query('code') code: string | undefined,
     @Query('state') state: string | undefined,
@@ -90,10 +112,20 @@ export class AuthController {
   @UseGuards(CsrfGuard)
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Get or renew the access token',
+    description:
+      `Authenticated by the \`${REFRESH_COOKIE.name}\` cookie. Must come from ` +
+      `FRONTEND_URL with \`${CSRF_HEADER}: 1\`, so it can't be tried from here.`,
+  })
+  // Cookie AND header: one requirement object holding both schemes.
+  @ApiSecurity({ [SWAGGER_AUTH.refreshCookie]: [], [SWAGGER_AUTH.csrf]: [] })
+  @ApiSuccessResponse(AccessTokenResponseDto)
+  @ApiErrorResponses(HttpStatus.UNAUTHORIZED, HttpStatus.FORBIDDEN)
   async refresh(
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
-  ): Promise<ApiResponse<AccessTokenResponse>> {
+  ): Promise<ApiResponse<AccessTokenResponseDto>> {
     const refreshToken = readCookie(req, REFRESH_COOKIE.name);
     try {
       if (!refreshToken) {
@@ -113,6 +145,9 @@ export class AuthController {
   }
 
   @Get('me')
+  @ApiOperation({ summary: "The signed-in user's profile" })
+  @ApiSuccessResponse(ProfileResponseDto)
+  @ApiErrorResponses(HttpStatus.UNAUTHORIZED)
   async me(
     @CurrentAuth() auth: AuthContext,
   ): Promise<ApiResponse<ProfileResponseDto>> {
@@ -122,6 +157,9 @@ export class AuthController {
   /** Logs out of the social app, GhanaWorks and every other portal. */
   @Post('logout')
   @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Sign out everywhere (app, GhanaWorks, portals)' })
+  @ApiNoContentResponse({ description: 'Signed out; refresh cookie cleared' })
+  @ApiErrorResponses(HttpStatus.UNAUTHORIZED)
   async logout(
     @CurrentAuth() auth: AuthContext,
     @Res({ passthrough: true }) res: Response,
@@ -134,6 +172,20 @@ export class AuthController {
   @Public()
   @Post('backchannel-logout')
   @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'GhanaWorks back-channel logout',
+    description: 'Called server-to-server by GhanaWorks, not by clients.',
+  })
+  @ApiConsumes('application/x-www-form-urlencoded')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['logout_token'],
+      properties: { logout_token: { type: 'string' } },
+    },
+  })
+  @ApiOkResponse({ description: 'Sessions for that user ended' })
+  @ApiErrorResponses(HttpStatus.BAD_REQUEST)
   async backchannelLogout(
     @Body('logout_token') logoutToken: unknown,
   ): Promise<void> {

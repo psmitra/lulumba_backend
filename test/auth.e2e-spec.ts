@@ -390,3 +390,21 @@ describe('logout', () => {
     await me(accessToken).expect(200);
   });
 });
+
+describe('API docs', () => {
+  it('serves the OpenAPI spec with bearer auth except on public routes', async () => {
+    const { body } = await request(http).get('/docs/json').expect(200);
+
+    expect(body.security).toEqual([{ bearer: [] }]);
+    expect(body.paths['/auth/me'].get.security).toBeUndefined();
+    expect(body.paths['/health'].get.security).toEqual([{}]);
+    expect(body.paths['/auth/refresh'].post.security).toEqual([
+      { 'refresh-cookie': [], csrf: [] },
+    ]);
+    expect(body.paths['/auth/callback']).toBeUndefined();
+    expect(
+      body.paths['/auth/me'].get.responses['200'].content['application/json']
+        .schema.properties.data,
+    ).toEqual({ $ref: '#/components/schemas/ProfileResponseDto' });
+  });
+});
