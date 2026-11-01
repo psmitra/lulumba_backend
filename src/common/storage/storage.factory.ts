@@ -1,0 +1,12 @@
+import type { StorageConfig } from '@common/config/storage.config.js';
+import { StorageDriver } from '@common/enums/storage-driver.enum.js';
+import type { StorageProvider } from './interfaces/storage-provider.interface.js';
+import { FtpStorageProvider } from './providers/ftp/ftp-storage.provider.js';
+
+/** Builds the provider selected by the storage config. */
+export function createStorageProvider(config: StorageConfig): StorageProvider {
+  switch (config.driver) {
+    case StorageDriver.Ftp:
+      return new FtpStorageProvider(config.ftp);
+  }
+}
