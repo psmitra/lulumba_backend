@@ -1,5 +1,4 @@
-import type { LeanDocument } from '@common/repository/base.repository.js';
-import type { Profile } from '@database/schemas/profile.schema.js';
+import type { ProfileEntity } from '@app-types/profile.types.js';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class ProfileResponseDto {
@@ -28,9 +27,9 @@ export class ProfileResponseDto {
   @ApiProperty({ type: String, format: 'date-time' })
   createdAt: Date;
 
-  static fromDocument(doc: LeanDocument<Profile>): ProfileResponseDto {
+  static fromEntity(doc: ProfileEntity): ProfileResponseDto {
     const dto = new ProfileResponseDto();
-    dto.id = doc._id.toString();
+    dto.id = doc.id;
     dto.externalUserId = doc.externalUserId;
     dto.username = doc.username ?? null;
     dto.displayName = doc.displayName ?? null;

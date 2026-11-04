@@ -1,7 +1,7 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { SchemaTypes } from 'mongoose';
 import type { Types } from 'mongoose';
-import { NotificationType } from '../types/notification.types.js';
+import { NotificationType } from '@app-types/notification.types.js';
 
 /**
  * In-app notification for `recipientId` about something `actorId` did. Both

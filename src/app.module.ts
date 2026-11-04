@@ -6,8 +6,16 @@ import { createValidationPipe } from '@common/pipes/validation.pipe.js';
 import { DatabaseService } from '@common/services/database.service.js';
 import { StorageModule } from '@common/storage/storage.module.js';
 import { AuthModule } from '@modules/auth/auth.module.js';
+import { FollowModule } from '@modules/follow/follow.module.js';
 import { JwtAuthGuard } from '@modules/auth/guards/jwt-auth.guard.js';
+import { BookmarksModule } from '@modules/bookmarks/bookmarks.module.js';
+import { CommentsModule } from '@modules/comments/comments.module.js';
+import { FeedModule } from '@modules/feed/feed.module.js';
+import { LikesModule } from '@modules/likes/likes.module.js';
+import { MediaModule } from '@modules/media/media.module.js';
+import { PostsModule } from '@modules/posts/posts.module.js';
 import { ProfilesModule } from '@modules/profiles/profiles.module.js';
+import { SharesModule } from '@modules/shares/shares.module.js';
 import { Module } from '@nestjs/common';
 import type { DynamicModule } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
@@ -45,6 +53,14 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
     StorageModule,
     AuthModule,
     ProfilesModule,
+    FollowModule,
+    PostsModule,
+    MediaModule,
+    LikesModule,
+    CommentsModule,
+    SharesModule,
+    BookmarksModule,
+    FeedModule,
   ],
   controllers: [AppController],
   providers: [

@@ -1,28 +1,48 @@
-import type {
-  ClientSession,
-  Default__v,
-  Model,
-  ProjectionType,
-  QueryFilter,
-  Require_id,
-  SortOrder,
-  UpdateQuery,
+import {
+  Types,
+  type ClientSession,
+  type Default__v,
+  type Model,
+  type ProjectionType,
+  type QueryFilter,
+  type Require_id,
+  type SortOrder,
+  type UpdateQuery,
 } from 'mongoose';
-import { DuplicateKeyError } from '../exceptions/duplicate-key.error.js';
+import type { CursorPosition } from '@common/utils/cursor.util.js';
+import { DuplicateKeyError } from '@common/exceptions/duplicate-key.error.js';
 import type {
   PaginatedResult,
+  SortDirection,
   SortOption,
-} from '../interfaces/pagination.interface.js';
-import { isValidObjectId } from '../utils/object-id.util.js';
-import { normalizePagination } from '../utils/pagination.util.js';
-import { omitUndefined } from '../utils/safe-object.util.js';
+} from '@common/interfaces/pagination.interface.js';
+import { isValidObjectId } from '@common/utils/object-id.util.js';
+import { normalizePagination } from '@common/utils/pagination.util.js';
+import { omitUndefined } from '@common/utils/safe-object.util.js';
 import {
   getDuplicateKeyFields,
   isDuplicateKeyError,
-} from '../utils/mongo-error.util.js';
+} from '@common/utils/mongo-error.util.js';
 
 /** Plain object returned by `.lean()` / `toObject()` for a schema class. */
 export type LeanDocument<TSchema> = Default__v<Require_id<TSchema>>;
+
+/**
+ * Default domain object for a schema: the lean document with `_id` turned
+ * into a string `id` and without `__v`. Produced by `toPlainEntity`.
+ */
+export type Entity<TSchema> = Omit<LeanDocument<TSchema>, '_id' | '__v'> & {
+  id: string;
+};
+
+export function toPlainEntity<TSchema>(
+  document: LeanDocument<TSchema>,
+): Entity<TSchema> {
+  const { _id: _objectId, __v: _version, ...fields } = document;
+  // Every schema here uses the default ObjectId `_id`.
+  const id = (document._id as Types.ObjectId).toString();
+  return { ...fields, id } as Entity<TSchema>;
+}
 
 export type SortSpec = Record<string, SortOrder>;
 
@@ -147,6 +167,32 @@ export abstract class BaseCrudRepository<TSchema, TEntity> {
   }
 
   /**
+   * One cursor page of `filter` starting after `after`, newest first by
+   * default. Sorted on `createdAt, _id` (back it with a matching index), so
+   * pages never skip or repeat records when new ones arrive between requests.
+   */
+  async findCursorPage(
+    filter: QueryFilter<TSchema>,
+    limit: number,
+    after?: CursorPosition,
+    direction: SortDirection = 'desc',
+  ): Promise<{ items: TEntity[]; hasMore: boolean }> {
+    const order = direction === 'desc' ? -1 : 1;
+    const page = (
+      after ? { $and: [filter, afterCursor(after, direction)] } : filter
+    ) as QueryFilter<TSchema>;
+    const documents = await this.model
+      .find(page)
+      .sort({ createdAt: order, _id: order })
+      .limit(limit + 1)
+      .lean<LeanDocument<TSchema>[]>();
+    return {
+      items: documents.slice(0, limit).map((doc) => this.toEntity(doc)),
+      hasMore: documents.length > limit,
+    };
+  }
+
+  /**
    * Applies `data` with `$set`; keys whose value is `undefined` are ignored.
    * Resolves to null when no record matches.
    */
@@ -185,6 +231,17 @@ export abstract class BaseCrudRepository<TSchema, TEntity> {
     return deleted !== null;
   }
 
+  /** Resolves to true when a record matching `filter` was deleted. */
+  async deleteOne(
+    filter: QueryFilter<TSchema>,
+    options: RepositoryOptions = {},
+  ): Promise<boolean> {
+    const result = await this.model.deleteOne(filter, {
+      session: options.session,
+    });
+    return result.deletedCount > 0;
+  }
+
   async exists(
     filter: QueryFilter<TSchema>,
     options: RepositoryOptions = {},
@@ -220,6 +277,49 @@ export abstract class BaseCrudRepository<TSchema, TEntity> {
     return query.lean<TResult[]>();
   }
 
+  /**
+   * Raw update for subclasses (atomic `$inc`, conditional state changes).
+   * Resolves to true when a record matched `filter`.
+   */
+  protected async updateOneWhere(
+    filter: QueryFilter<TSchema>,
+    update: UpdateQuery<TSchema>,
+    options: RepositoryOptions = {},
+  ): Promise<boolean> {
+    try {
+      const result = await this.model.updateOne(filter, update, {
+        runValidators: true,
+        session: options.session,
+      });
+      return result.matchedCount > 0;
+    } catch (error) {
+      throw this.translateError(error);
+    }
+  }
+
+  /** Atomic read-modify-write for subclasses; returns the updated record. */
+  protected async findOneAndUpdateWhere(
+    filter: QueryFilter<TSchema>,
+    update: UpdateQuery<TSchema>,
+    options: RepositoryOptions & { upsert?: boolean; sort?: SortSpec } = {},
+  ): Promise<TEntity | null> {
+    try {
+      const document: LeanDocument<TSchema> | null = await this.model
+        .findOneAndUpdate(filter, update, {
+          returnDocument: 'after',
+          runValidators: true,
+          upsert: options.upsert ?? false,
+          setDefaultsOnInsert: true,
+          sort: options.sort,
+          session: options.session,
+        })
+        .lean<LeanDocument<TSchema>>();
+      return document ? this.toEntity(document) : null;
+    } catch (error) {
+      throw this.translateError(error);
+    }
+  }
+
   private toSortSpec(sort: FindPaginatedOptions['sort']): SortSpec {
     if (!sort) {
       return { createdAt: -1 };
@@ -242,4 +342,21 @@ function isSortOption(sort: SortOption | SortSpec): sort is SortOption {
     typeof sort.field === 'string' &&
     (sort.direction === 'asc' || sort.direction === 'desc')
   );
+}
+
+/** Records strictly after `after` in `createdAt, _id` order. */
+export function afterCursor(
+  after: CursorPosition,
+  direction: SortDirection = 'desc',
+): Record<string, unknown> {
+  const beyond = direction === 'desc' ? '$lt' : '$gt';
+  return {
+    $or: [
+      { createdAt: { [beyond]: after.createdAt } },
+      {
+        createdAt: after.createdAt,
+        _id: { [beyond]: new Types.ObjectId(after.id) },
+      },
+    ],
+  };
 }

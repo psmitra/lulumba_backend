@@ -42,6 +42,10 @@ export class Comment {
   @Prop({ type: Number, default: 0, min: 0 })
   repliesCount: number;
 
+  // Set when the author edits the body (updatedAt also moves on counters).
+  @Prop({ type: Date })
+  editedAt?: Date;
+
   // Soft delete; a deleted comment with replies can be shown as "[deleted]".
   @Prop({ type: Date })
   deletedAt?: Date;
@@ -57,3 +61,5 @@ export const CommentSchema = SchemaFactory.createForClass(Comment);
 CommentSchema.index({ postId: 1, parentId: 1, createdAt: 1, _id: 1 });
 // Replies to a comment, chronological.
 CommentSchema.index({ parentId: 1, createdAt: 1, _id: 1 });
+// A user's recent comments (feed affinity).
+CommentSchema.index({ authorId: 1, createdAt: -1 });

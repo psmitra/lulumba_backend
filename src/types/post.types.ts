@@ -1,5 +1,6 @@
+import type { Entity } from '@database/repositories/base.repository.js';
 import type { HydratedDocument } from 'mongoose';
-import type { Post } from '../schemas/post.schema.js';
+import type { Post } from '@database/schemas/post.schema.js';
 
 export enum PostVisibility {
   Public = 'public',
@@ -7,3 +8,6 @@ export enum PostVisibility {
 }
 
 export type PostDocument = HydratedDocument<Post>;
+
+/** What PostRepository returns: plain object, `id` as a string. */
+export type PostEntity = Entity<Post>;

@@ -8,7 +8,11 @@ import {
   type ReferenceObject,
   type SchemaObject,
 } from '@nestjs/swagger';
-import { ApiErrorResponseDto, PaginationMetaDto } from './swagger.dto.js';
+import {
+  ApiErrorResponseDto,
+  CursorMetaDto,
+  PaginationMetaDto,
+} from './swagger.dto.js';
 
 interface SuccessOptions {
   status?: HttpStatus;
@@ -48,13 +52,63 @@ export function ApiPaginatedResponse(
   );
 }
 
+/** Documents `cursorResponse(items, meta)`: a cursor page of `model`. */
+export function ApiCursorPaginatedResponse(
+  model: Type<unknown>,
+  { status = HttpStatus.OK, description }: SuccessOptions = {},
+) {
+  return applyDecorators(
+    ApiExtraModels(model, CursorMetaDto),
+    ApiResponse({
+      status,
+      description,
+      schema: envelope(
+        { type: 'array', items: { $ref: getSchemaPath(model) } },
+        { $ref: getSchemaPath(CursorMetaDto) },
+      ),
+    }),
+  );
+}
+
 /** Documents error statuses with the AllExceptionsFilter body. */
 export function ApiErrorResponses(...statuses: HttpStatus[]) {
   return applyDecorators(
     ...statuses.map((status) =>
-      ApiResponse({ status, type: ApiErrorResponseDto }),
+      ApiResponse({
+        status,
+        type: ApiErrorResponseDto,
+        example: errorExample(status),
+      }),
     ),
   );
+}
+
+// Typical messages, so each status shows a fitting example in Swagger UI.
+const ERROR_MESSAGES: Partial<Record<HttpStatus, string>> = {
+  [HttpStatus.BAD_REQUEST]: 'Validation failed',
+  [HttpStatus.UNAUTHORIZED]: 'Authentication required',
+  [HttpStatus.FORBIDDEN]: 'Forbidden',
+  [HttpStatus.NOT_FOUND]: 'Not found',
+  [HttpStatus.CONFLICT]: 'Resource already exists',
+  [HttpStatus.GONE]: 'This feed has expired; load it again from the first page',
+  [HttpStatus.TOO_MANY_REQUESTS]: 'ThrottlerException: Too Many Requests',
+  [HttpStatus.SERVICE_UNAVAILABLE]: 'Database unavailable',
+};
+
+function errorExample(status: HttpStatus): ApiErrorResponseDto {
+  return {
+    success: false,
+    message: ERROR_MESSAGES[status] ?? 'Request failed',
+    error: {
+      statusCode: status,
+      code: HttpStatus[status] ?? 'ERROR',
+      ...(status === HttpStatus.BAD_REQUEST
+        ? { details: [{ field: 'page', message: 'page must be an integer' }] }
+        : {}),
+      path: '/users/5001/follow',
+      timestamp: '2026-11-01T21:47:00.009Z',
+    },
+  };
 }
 
 /**

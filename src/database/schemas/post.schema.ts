@@ -1,8 +1,8 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { SchemaTypes } from 'mongoose';
 import type { Types } from 'mongoose';
-import { MediaType } from '../types/media.types.js';
-import { PostVisibility } from '../types/post.types.js';
+import { MediaType } from '@app-types/media.types.js';
+import { PostVisibility } from '@app-types/post.types.js';
 
 export const MAX_POST_ATTACHMENTS = 10;
 
@@ -93,6 +93,8 @@ PostSchema.index({ visibility: 1, createdAt: -1, _id: -1 });
 PostSchema.index({ mediaTypes: 1, visibility: 1, createdAt: -1, _id: -1 });
 // Caption search.
 PostSchema.index({ caption: 'text' });
+// "Is this media already on a post?" when creating or editing posts.
+PostSchema.index({ 'attachments.mediaId': 1 });
 PostSchema.index(
   { authorId: 1, idempotencyKey: 1 },
   {

@@ -1,6 +1,7 @@
 export * from './block.types.js';
 export * from './bookmark.types.js';
 export * from './comment.types.js';
+export * from './feed-snapshot.types.js';
 export * from './follow.types.js';
 export * from './like.types.js';
 export * from './media.types.js';

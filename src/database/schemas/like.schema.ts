@@ -28,4 +28,6 @@ export const LikeSchema = SchemaFactory.createForClass(Like);
 // One like per user per post; also serves "is liked" checks.
 LikeSchema.index({ postId: 1, userId: 1 }, { unique: true });
 // Users who liked a post, newest first.
-LikeSchema.index({ postId: 1, createdAt: -1 });
+LikeSchema.index({ postId: 1, createdAt: -1, _id: -1 });
+// A user's recent likes (feed affinity).
+LikeSchema.index({ userId: 1, createdAt: -1 });

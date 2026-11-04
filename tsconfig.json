@@ -22,7 +22,8 @@
     "paths": {
       "@common/*": ["./src/common/*"],
       "@database/*": ["./src/database/*"],
-      "@modules/*": ["./src/modules/*"]
+      "@modules/*": ["./src/modules/*"],
+      "@app-types/*": ["./src/types/*"]
     },
     "types": ["vitest/globals", "node"]
   }

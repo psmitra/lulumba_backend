@@ -3,7 +3,7 @@ import {
   ReportReason,
   ReportStatus,
   ReportTargetType,
-} from '../types/report.types.js';
+} from '@app-types/report.types.js';
 
 /** A user's report about a post, user or comment, stored for later review. */
 @Schema({ collection: 'reports', timestamps: true })

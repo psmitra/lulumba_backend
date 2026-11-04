@@ -1,5 +1,6 @@
+import type { Entity } from '@database/repositories/base.repository.js';
 import type { HydratedDocument } from 'mongoose';
-import type { Media } from '../schemas/media.schema.js';
+import type { Media } from '@database/schemas/media.schema.js';
 
 export enum MediaType {
   Image = 'image',
@@ -22,3 +23,6 @@ export enum MediaVariant {
 }
 
 export type MediaDocument = HydratedDocument<Media>;
+
+/** What MediaRepository returns: plain object, `id` as a string. */
+export type MediaEntity = Entity<Media>;

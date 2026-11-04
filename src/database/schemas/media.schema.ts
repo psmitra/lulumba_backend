@@ -1,7 +1,11 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { SchemaTypes } from 'mongoose';
 import type { Types } from 'mongoose';
-import { MediaStatus, MediaType, MediaVariant } from '../types/media.types.js';
+import {
+  MediaStatus,
+  MediaType,
+  MediaVariant,
+} from '@app-types/media.types.js';
 
 /**
  * An uploaded image, video or document, kept independent of posts so it can

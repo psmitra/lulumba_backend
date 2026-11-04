@@ -30,3 +30,5 @@ export const BookmarkSchema = SchemaFactory.createForClass(Bookmark);
 BookmarkSchema.index({ userId: 1, postId: 1 }, { unique: true });
 // The user's Shortlist, newest first. Type filters join to posts.mediaTypes.
 BookmarkSchema.index({ userId: 1, createdAt: -1, _id: -1 });
+// Saves per post (feed ranking).
+BookmarkSchema.index({ postId: 1 });

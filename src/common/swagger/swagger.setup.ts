@@ -6,6 +6,12 @@ import { ApiErrorResponseDto } from './swagger.dto.js';
 
 export const SWAGGER_PATH = 'docs';
 
+/** Downloadable OpenAPI spec, for Postman, Insomnia or client generators. */
+export const SWAGGER_EXPORT_PATHS = {
+  json: `${SWAGGER_PATH}/json`,
+  yaml: `${SWAGGER_PATH}/yaml`,
+} as const;
+
 /** Security scheme names, as referenced by @ApiSecurity / @ApiCookieAuth. */
 export const SWAGGER_AUTH = {
   bearer: 'bearer',
@@ -14,7 +20,8 @@ export const SWAGGER_AUTH = {
 } as const;
 
 /**
- * Serves Swagger UI at /docs and the spec at /docs/json. Every route needs a
+ * Serves Swagger UI at /docs and the spec at /docs/json and /docs/yaml
+ * (import either into Postman or a client generator). Every route needs a
  * bearer access token unless it is @Public(), which clears the requirement.
  * With DEV_AUTH_TOKEN set, "Authorize" with that value to try routes out.
  */
@@ -27,7 +34,9 @@ export function setupSwagger(
     .setDescription(
       `${env.APP_NAME} social API. Sign in through GhanaWorks at ` +
         '`GET /auth/login`; the React app then gets an access token from ' +
-        '`POST /auth/refresh` and sends it as `Authorization: Bearer <token>`.',
+        '`POST /auth/refresh` and sends it as `Authorization: Bearer <token>`.' +
+        `\n\nExport this spec: [JSON](/${SWAGGER_EXPORT_PATHS.json}) · ` +
+        `[YAML](/${SWAGGER_EXPORT_PATHS.yaml})`,
     )
     .setVersion('1.0')
     .addBearerAuth(
@@ -51,7 +60,8 @@ export function setupSwagger(
   });
 
   SwaggerModule.setup(SWAGGER_PATH, app, document, {
-    jsonDocumentUrl: `${SWAGGER_PATH}/json`,
+    jsonDocumentUrl: SWAGGER_EXPORT_PATHS.json,
+    yamlDocumentUrl: SWAGGER_EXPORT_PATHS.yaml,
     customSiteTitle: `${env.APP_NAME} API docs`,
     swaggerOptions: {
       persistAuthorization: true,

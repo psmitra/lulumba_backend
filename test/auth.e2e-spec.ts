@@ -408,3 +408,89 @@ describe('API docs', () => {
     ).toEqual({ $ref: '#/components/schemas/ProfileResponseDto' });
   });
 });
+
+describe('follow', () => {
+  const as = (token: string) => ({ Authorization: `Bearer ${token}` });
+
+  it('follows, lists, counts and unfollows (idempotently)', async () => {
+    const alice = ghanaWorksUser();
+    const bob = ghanaWorksUser();
+    const { accessToken: aliceToken } = await signIn(alice);
+    await signIn(bob);
+    const bobUrl = `/users/${bob.id}`;
+
+    for (let i = 0; i < 2; i++) {
+      const res = await request(http)
+        .post(`${bobUrl}/follow`)
+        .set(as(aliceToken))
+        .expect(200);
+      expect(res.body.data).toMatchObject({
+        followerId: String(alice.id),
+        followingId: String(bob.id),
+      });
+    }
+
+    const followers = await request(http)
+      .get(`${bobUrl}/followers`)
+      .set(as(aliceToken))
+      .expect(200);
+    expect(followers.body.data).toHaveLength(1);
+    expect(followers.body.data[0]).toMatchObject({
+      user: { userId: String(alice.id), displayName: alice.name },
+      isFollowing: false,
+      isMe: true,
+    });
+    expect(followers.body.meta).toMatchObject({ total: 1, page: 1 });
+
+    const stats = await request(http)
+      .get(`${bobUrl}/follow-stats`)
+      .set(as(aliceToken))
+      .expect(200);
+    expect(stats.body.data).toEqual({
+      followersCount: 1,
+      followingCount: 0,
+      isFollowing: true,
+      isFollowedBy: false,
+    });
+
+    await request(http)
+      .delete(`${bobUrl}/follow`)
+      .set(as(aliceToken))
+      .expect(204);
+    await request(http)
+      .delete(`${bobUrl}/follow`)
+      .set(as(aliceToken))
+      .expect(204);
+    const after = await request(http)
+      .get(`/users/${alice.id}/following`)
+      .set(as(aliceToken))
+      .expect(200);
+    expect(after.body.data).toHaveLength(0);
+  });
+
+  it('rejects self-follows, unknown users and blocked users', async () => {
+    const alice = ghanaWorksUser();
+    const bob = ghanaWorksUser();
+    const { accessToken } = await signIn(alice);
+    await signIn(bob);
+
+    await request(http)
+      .post(`/users/${alice.id}/follow`)
+      .set(as(accessToken))
+      .expect(400);
+    await request(http)
+      .post('/users/no-such-user/follow')
+      .set(as(accessToken))
+      .expect(404);
+
+    await connection.collection('blocks').insertOne({
+      blockerId: String(bob.id),
+      blockedId: String(alice.id),
+      createdAt: new Date(),
+    });
+    await request(http)
+      .post(`/users/${bob.id}/follow`)
+      .set(as(accessToken))
+      .expect(403);
+  });
+});

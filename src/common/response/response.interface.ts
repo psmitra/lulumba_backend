@@ -9,6 +9,15 @@ export interface ApiResponse<TData, TMeta = null> {
 
 export type ApiPaginatedResponse<TItem> = ApiResponse<TItem[], PaginationMeta>;
 
+/** For feeds: pass `nextCursor` back as `?cursor=` to get the next page. */
+export interface CursorMeta {
+  limit: number;
+  nextCursor: string | null;
+  hasMore: boolean;
+}
+
+export type ApiCursorResponse<TItem> = ApiResponse<TItem[], CursorMeta>;
+
 export interface ApiErrorDetail {
   field?: string;
   message: string;

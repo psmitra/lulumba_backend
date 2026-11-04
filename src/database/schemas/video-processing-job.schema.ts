@@ -4,7 +4,7 @@ import type { Types } from 'mongoose';
 import {
   VideoJobStatus,
   VideoJobType,
-} from '../types/video-processing-job.types.js';
+} from '@app-types/video-processing-job.types.js';
 
 @Schema({ _id: false })
 export class WatermarkOptions {

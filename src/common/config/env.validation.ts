@@ -170,6 +170,12 @@ export class EnvironmentVariables {
   @Min(1)
   STORAGE_MAX_DOCUMENT_MB: number = 20;
 
+  // Total size of one user's active uploads, in megabytes.
+  @Transform(({ value }) => (value === undefined ? 2048 : Number(value)))
+  @IsInt()
+  @Min(1)
+  STORAGE_USER_QUOTA_MB: number = 2048;
+
   // Development only: `Authorization: Bearer <DEV_AUTH_TOKEN>` signs in as
   // the dev user without GhanaWorks. Refused in production.
   @Transform(({ value }) => emptyToUndefined(value))

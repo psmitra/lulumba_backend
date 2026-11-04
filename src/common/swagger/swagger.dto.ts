@@ -17,6 +17,21 @@ export class PaginationMetaDto {
   totalPages: number;
 }
 
+export class CursorMetaDto {
+  @ApiProperty({ example: 20 })
+  limit: number;
+
+  @ApiProperty({
+    type: String,
+    nullable: true,
+    description: 'Send as `?cursor=` for the next page; null on the last page',
+  })
+  nextCursor: string | null;
+
+  @ApiProperty()
+  hasMore: boolean;
+}
+
 export class ApiErrorDetailDto {
   @ApiPropertyOptional({ example: 'username' })
   field?: string;

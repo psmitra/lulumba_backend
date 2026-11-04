@@ -6,8 +6,8 @@ import {
   savedDocument,
 } from '../../../test/utils/mongoose-mocks.js';
 import type { ModelMock } from '../../../test/utils/mongoose-mocks.js';
-import { DuplicateKeyError } from '../exceptions/duplicate-key.error.js';
-import { BaseCrudRepository } from './base.repository.js';
+import { DuplicateKeyError } from '@common/exceptions/duplicate-key.error.js';
+import { BaseCrudRepository, toPlainEntity } from './base.repository.js';
 import type { LeanDocument } from './base.repository.js';
 
 interface Thing {
@@ -242,5 +242,27 @@ describe('BaseCrudRepository', () => {
     mock.model.countDocuments.mockReturnValue(queryMock(7));
 
     await expect(repository.count({ name: 'alpha' })).resolves.toBe(7);
+  });
+});
+
+describe('toPlainEntity', () => {
+  it('turns _id into a string id and drops __v', () => {
+    const _id = new Types.ObjectId();
+    const createdAt = new Date();
+
+    expect(
+      toPlainEntity<Thing>({
+        _id,
+        __v: 3,
+        name: 'beta',
+        createdAt,
+        updatedAt: createdAt,
+      }),
+    ).toEqual({
+      id: _id.toString(),
+      name: 'beta',
+      createdAt,
+      updatedAt: createdAt,
+    });
   });
 });

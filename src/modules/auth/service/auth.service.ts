@@ -115,7 +115,7 @@ export class AuthService implements OnApplicationBootstrap {
     if (!profile) {
       throw new UnauthorizedException('Please sign in again');
     }
-    return ProfileResponseDto.fromDocument(profile);
+    return ProfileResponseDto.fromEntity(profile);
   }
 
   /** Ends the session here at once, then logs out of GhanaWorks (§3.5). */
@@ -169,7 +169,7 @@ export class AuthService implements OnApplicationBootstrap {
     }
     return {
       externalUserId,
-      profileId: profile._id.toString(),
+      profileId: profile.id,
       accessToken,
     };
   }

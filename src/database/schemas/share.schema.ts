@@ -1,7 +1,7 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { SchemaTypes } from 'mongoose';
 import type { Types } from 'mongoose';
-import { ShareType } from '../types/share.types.js';
+import { ShareType } from '@app-types/share.types.js';
 
 /**
  * A recorded share action. `recipientUserId` is required for internal shares
@@ -42,6 +42,10 @@ export class Share {
 export const ShareSchema = SchemaFactory.createForClass(Share);
 
 ShareSchema.index({ postId: 1, createdAt: -1 });
+// A user's recent shares (feed affinity).
+ShareSchema.index({ userId: 1, createdAt: -1 });
+// "Has this user already shared this post this way?" (unique reach).
+ShareSchema.index({ postId: 1, userId: 1, shareType: 1, recipientUserId: 1 });
 // Posts shared with a user in-app.
 ShareSchema.index(
   { recipientUserId: 1, createdAt: -1 },

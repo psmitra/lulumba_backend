@@ -5,7 +5,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { IS_PUBLIC_KEY } from '../auth.constants.js';
+import { IS_OPTIONAL_AUTH_KEY, IS_PUBLIC_KEY } from '../auth.constants.js';
 import type { AuthenticatedRequest } from '../interfaces/auth-context.interface.js';
 import { AuthService } from '../service/auth.service.js';
 
@@ -30,11 +30,23 @@ export class JwtAuthGuard implements CanActivate {
     const token = /^Bearer (\S+)$/.exec(
       request.headers.authorization ?? '',
     )?.[1];
+    if (!token && this.isOptional(context)) {
+      return true;
+    }
     if (!token) {
       throw new UnauthorizedException('Authentication required');
     }
 
     request.auth = await this.auth.authenticate(token);
     return true;
+  }
+
+  private isOptional(context: ExecutionContext): boolean {
+    return (
+      this.reflector.getAllAndOverride<boolean>(IS_OPTIONAL_AUTH_KEY, [
+        context.getHandler(),
+        context.getClass(),
+      ]) ?? false
+    );
   }
 }

@@ -1,4 +1,5 @@
 export const IS_PUBLIC_KEY = 'auth:isPublic';
+export const IS_OPTIONAL_AUTH_KEY = 'auth:isOptional';
 
 /**
  * Required on POST /auth/refresh. A cross-origin page can only send it after

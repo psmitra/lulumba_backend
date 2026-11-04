@@ -1,5 +1,6 @@
+import type { Entity } from '@database/repositories/base.repository.js';
 import type { HydratedDocument } from 'mongoose';
-import type { Report } from '../schemas/report.schema.js';
+import type { Report } from '@database/schemas/report.schema.js';
 
 export enum ReportTargetType {
   Post = 'post',
@@ -26,3 +27,6 @@ export enum ReportStatus {
 }
 
 export type ReportDocument = HydratedDocument<Report>;
+
+/** What ReportRepository returns: plain object, `id` as a string. */
+export type ReportEntity = Entity<Report>;

@@ -1,6 +1,7 @@
 export * from './block.schema.js';
 export * from './bookmark.schema.js';
 export * from './comment.schema.js';
+export * from './feed-snapshot.schema.js';
 export * from './follow.schema.js';
 export * from './like.schema.js';
 export * from './media.schema.js';
