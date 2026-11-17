@@ -6,6 +6,7 @@ import {
 import type { EnvironmentVariables } from '@common/config/env.validation.js';
 import { StorageService } from '@common/services/storage.service.js';
 import { StorageError } from '@common/storage/storage.errors.js';
+import { ALLOWED_MIME_TYPES } from '@common/storage/storage.types.js';
 import { MediaRepository } from '@database/repositories/media.repository.js';
 import { PostRepository } from '@database/repositories/post.repository.js';
 import { PostsService } from '@modules/posts/service/posts.service.js';
@@ -31,7 +32,7 @@ import type {
   MediaResponseDto,
   MediaStatusResponseDto,
 } from '../dto/media-response.dto.js';
-import { EXTENSIONS_FOR_MIME, MEDIA_FOLDER } from '../media.constants.js';
+import { extensionsFor, MEDIA_FOLDER, MEDIA_KIND } from '../media.constants.js';
 
 const MB = 1024 * 1024;
 
@@ -75,16 +76,23 @@ export class MediaService {
       );
     }
     const fileName = cleanFileName(file.originalname);
+    const type = input.mediaType;
+    const supported = extensionsFor(type);
     const detected = await fileTypeFromBuffer(file.buffer);
-    if (!detected || !detected.mime.startsWith(mimePrefix(input.mediaType))) {
+    if (!detected || !ALLOWED_MIME_TYPES[MEDIA_KIND[type]].has(detected.mime)) {
       throw new UnsupportedMediaTypeException(
-        `This file is not a supported ${input.mediaType}`,
+        `This file is not a supported ${type}` +
+          (detected ? ` (it is ${detected.mime})` : '') +
+          `. Supported: ${supported.join(', ')}`,
       );
     }
+    // The name only has to be the same kind of file: a JPEG named .png is
+    // fine (it is stored as .jpg), an image named .pdf is not.
     const extension = extname(fileName).slice(1).toLowerCase();
-    if (!EXTENSIONS_FOR_MIME[detected.mime]?.includes(extension)) {
+    if (!supported.includes(extension)) {
       throw new UnsupportedMediaTypeException(
-        `The file name extension does not match its content (${detected.mime})`,
+        `"${fileName}" does not have a ${type} file name extension ` +
+          `(${supported.join(', ')})`,
       );
     }
     const used = await this.media.totalBytesFor(ownerId);
@@ -250,10 +258,6 @@ export class MediaService {
       throw error;
     }
   }
-}
-
-function mimePrefix(type: MediaType): string {
-  return type === MediaType.Document ? 'application/' : `${type}/`;
 }
 
 /**

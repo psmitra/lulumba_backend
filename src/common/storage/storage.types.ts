@@ -26,13 +26,24 @@ export enum FileKind {
   Document = 'document',
 }
 
-/** Content types accepted per kind, as detected from the file's bytes. */
+/**
+ * Content types accepted per kind, as detected from the file's bytes.
+ * Images: everyday photo and web formats. Not accepted: SVG (it can carry
+ * scripts), camera RAW, Photoshop/GIMP files and icons.
+ */
 export const ALLOWED_MIME_TYPES: Record<FileKind, ReadonlySet<string>> = {
   [FileKind.Image]: new Set([
     'image/jpeg',
     'image/png',
-    'image/webp',
+    'image/apng', // animated PNG
     'image/gif',
+    'image/webp',
+    'image/avif',
+    'image/heic', // iPhone photos
+    'image/heif',
+    'image/jxl',
+    'image/bmp',
+    'image/tiff',
   ]),
   [FileKind.Video]: new Set(['video/mp4', 'video/webm', 'video/quicktime']),
   [FileKind.Document]: new Set([

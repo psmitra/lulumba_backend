@@ -21,6 +21,54 @@ const MP4_HEADER = Buffer.from(
   '0000001866747970697336d6f6d0000020069736f6d69736f32',
   'hex',
 );
+const hex = (value: string) => Buffer.from(value.replace(/\s/g, ''), 'hex');
+/** Minimal header of every accepted image format, by its usual extension. */
+const IMAGE_HEADERS: Record<string, { header: Buffer; mime: string }> = {
+  jpg: { header: hex('ffd8ffe000104a464946000101'), mime: 'image/jpeg' },
+  png: { header: PNG_HEADER, mime: 'image/png' },
+  apng: {
+    // PNG + IHDR + acTL (animation control) chunk.
+    header: Buffer.concat([
+      PNG_HEADER,
+      hex('00000008 6163544c 00000001 00000000 b42de381'),
+    ]),
+    mime: 'image/apng',
+  },
+  gif: {
+    header: Buffer.from('GIF89a\x01\x00\x01\x00\x00\x00\x00', 'latin1'),
+    mime: 'image/gif',
+  },
+  webp: {
+    header: Buffer.concat([
+      Buffer.from('RIFF'),
+      hex('00100000'),
+      Buffer.from('WEBPVP8 '),
+    ]),
+    mime: 'image/webp',
+  },
+  avif: {
+    header: hex('0000001c 66747970 61766966 00000000 61766966 6d696631'),
+    mime: 'image/avif',
+  },
+  heic: {
+    header: hex('00000018 66747970 68656963 00000000 6d696631 68656963'),
+    mime: 'image/heic',
+  },
+  heif: {
+    // iPhone photo with the generic `mif1` brand: still named .heic.
+    header: hex('00000018 66747970 6d696631 00000000 6d696631 68656963'),
+    mime: 'image/heif',
+  },
+  jxl: { header: hex('ff0a'), mime: 'image/jxl' },
+  bmp: {
+    header: Buffer.concat([
+      Buffer.from('BM'),
+      hex('3a000000 00000000 36000000 28000000'),
+    ]),
+    mime: 'image/bmp',
+  },
+  tiff: { header: hex('49492a00 08000000'), mime: 'image/tiff' },
+};
 const pad = (header: Buffer, size = 2048) =>
   Buffer.concat([header, Buffer.alloc(Math.max(0, size - header.length))]);
 
@@ -101,6 +149,43 @@ describe('POST /media/uploads', () => {
       mimeType: 'video/mp4',
       durationSeconds: 12,
     });
+  });
+
+  it.each(Object.entries(IMAGE_HEADERS))(
+    'accepts %s images',
+    async (extension, { header, mime }) => {
+      const owner = await user();
+      const name = extension === 'heif' ? 'IMG_0001.HEIC' : `a.${extension}`;
+      const res = await upload(owner.token, pad(header), name, 'image').expect(
+        201,
+      );
+      expect(res.body.data).toMatchObject({ mimeType: mime, fileName: name });
+    },
+  );
+
+  it('accepts an image whose name has another image extension', async () => {
+    const owner = await user();
+    // Downloaded JPEGs are often saved as .png: stored under the real type.
+    const res = await upload(
+      owner.token,
+      pad(IMAGE_HEADERS.jpg!.header),
+      'Aquarium Air Pump Combo Kit(1).png',
+      'image',
+    ).expect(201);
+    expect(res.body.data).toMatchObject({
+      mimeType: 'image/jpeg',
+      fileName: 'Aquarium Air Pump Combo Kit(1).png',
+      fileUrl: expect.stringMatching(/\.jpg$/),
+    });
+  });
+
+  it('rejects SVG, which can carry scripts', async () => {
+    const owner = await user();
+    const svg = Buffer.from(
+      '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>',
+    );
+    const res = await upload(owner.token, svg, 'logo.svg', 'image').expect(415);
+    expect(res.body.message).toContain('Supported: jpg');
   });
 
   it('never trusts the declared type, extension or content type', async () => {

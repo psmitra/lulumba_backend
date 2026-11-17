@@ -32,7 +32,10 @@ export class AttachmentInputDto {
 }
 
 export class CreatePostDto {
-  @ApiPropertyOptional({ maxLength: 2200 })
+  @ApiPropertyOptional({
+    maxLength: 2200,
+    example: 'Fresh stock just arrived! 🐠',
+  })
   @IsOptional()
   @Trim()
   @IsString()
@@ -57,10 +60,13 @@ export class CreatePostDto {
   attachments: AttachmentInputDto[];
 
   @ApiPropertyOptional({
+    minLength: 8,
     maxLength: 128,
+    example: '3f2b8c1e-6a4d-4e2f-9b7a-1c5d8e9f0a2b',
     description:
-      'Any unique string per new post. Retrying with the same key returns ' +
-      'the post already created instead of a duplicate.',
+      'Optional. Any unique string of 8-128 characters per new post (a UUID ' +
+      'works well). Retrying with the same key returns the post already ' +
+      'created instead of a duplicate. Omit it if you do not retry.',
   })
   @IsOptional()
   @IsString()

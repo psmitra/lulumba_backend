@@ -29,6 +29,7 @@ import {
 } from '@nestjs/swagger';
 import { MediaType } from '@app-types/media.types.js';
 import { CompleteUploadDto, UploadMediaDto } from '../dto/media-input.dto.js';
+import { extensionsFor } from '../media.constants.js';
 import {
   DeleteMediaResponseDto,
   MediaResponseDto,
@@ -48,8 +49,12 @@ export class MediaController {
     summary: 'Upload an image, video or document',
     description:
       'Multipart upload. The real type is read from the file content and ' +
-      'must match `mediaType` and the file extension. Use the returned ' +
-      '`id` as `mediaId` when creating a post.',
+      'must be a supported `mediaType`; the file name only needs an ' +
+      'extension of the same kind (a JPEG named `.png` is fine).\n\n' +
+      `- **image**: ${extensionsFor(MediaType.Image).join(', ')}\n` +
+      `- **video**: ${extensionsFor(MediaType.Video).join(', ')}\n` +
+      `- **document**: ${extensionsFor(MediaType.Document).join(', ')}\n\n` +
+      'Use the returned `id` as `mediaId` when creating a post.',
   })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
