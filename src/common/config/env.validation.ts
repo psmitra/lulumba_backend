@@ -11,7 +11,6 @@ import {
   Matches,
   Max,
   Min,
-  MinLength,
   ValidateBy,
   ValidateIf,
   validateSync,
@@ -176,12 +175,13 @@ export class EnvironmentVariables {
   @Min(1)
   STORAGE_USER_QUOTA_MB: number = 2048;
 
-  // Development only: `Authorization: Bearer <DEV_AUTH_TOKEN>` signs in as
-  // the dev user without GhanaWorks. Refused in production.
-  @Transform(({ value }) => emptyToUndefined(value))
+  // Development only: after the GhanaWorks login, /auth/callback shows the
+  // access and refresh tokens as JSON instead of redirecting to FRONTEND_URL,
+  // so the API can be tested without a frontend. Refused in production.
   @IsOptional()
-  @MinLength(16)
-  DEV_AUTH_TOKEN?: string;
+  @Transform(({ value }) => value === true || value === 'true')
+  @IsBoolean()
+  DEV_SHOW_TOKENS: boolean = false;
 }
 
 /**
@@ -195,10 +195,10 @@ export function validateEnv(
   const errors = validateSync(validated, { skipMissingProperties: false });
 
   if (
-    validated.DEV_AUTH_TOKEN &&
+    validated.DEV_SHOW_TOKENS &&
     validated.APP_ENV === Environment.Production
   ) {
-    throw new Error('DEV_AUTH_TOKEN must not be set when APP_ENV=production');
+    throw new Error('DEV_SHOW_TOKENS must not be true when APP_ENV=production');
   }
   if (errors.length > 0) {
     const details = errors

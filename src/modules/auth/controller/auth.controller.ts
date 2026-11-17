@@ -1,4 +1,5 @@
 import type { EnvironmentVariables } from '@common/config/env.validation.js';
+import { API_BASE_PATH } from '@common/constants/api.constants.js';
 import type { ApiResponse } from '@common/response/response.interface.js';
 import { successResponse } from '@common/response/response.util.js';
 import {
@@ -34,6 +35,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import type { CookieOptions, Request, Response } from 'express';
+import { decodeJwt } from 'jose';
 import {
   CSRF_HEADER,
   OAUTH_COOKIE,
@@ -46,6 +48,7 @@ import type { TokenSet } from '../ghanaworks/ghanaworks.client.js';
 import { CsrfGuard } from '../guards/csrf.guard.js';
 import type { AuthContext } from '../interfaces/auth-context.interface.js';
 import { AuthService } from '../service/auth.service.js';
+import type { LoginResult } from '../service/auth.service.js';
 
 @ApiTags('auth')
 @ApiErrorResponses(HttpStatus.TOO_MANY_REQUESTS)
@@ -53,6 +56,7 @@ import { AuthService } from '../service/auth.service.js';
 export class AuthController {
   private readonly frontendUrl: string;
   private readonly secureCookies: boolean;
+  private readonly devShowTokens: boolean;
 
   constructor(
     private readonly auth: AuthService,
@@ -60,6 +64,7 @@ export class AuthController {
   ) {
     this.frontendUrl = config.get('FRONTEND_URL', { infer: true });
     this.secureCookies = config.get('COOKIE_SECURE', { infer: true });
+    this.devShowTokens = config.get('DEV_SHOW_TOKENS', { infer: true });
   }
 
   /** Step 1: the "Sign in" link. Redirects to GhanaWorks. */
@@ -81,6 +86,7 @@ export class AuthController {
    * Step 2: GhanaWorks redirects back here. On success the refresh token is
    * stored in an HttpOnly cookie and the browser goes to the React app,
    * which then calls POST /auth/refresh for its access token.
+   * With DEV_SHOW_TOKENS=true it shows the tokens as JSON instead.
    */
   @Public()
   @Get('callback')
@@ -98,13 +104,17 @@ export class AuthController {
     if (error || !code || !state) {
       return this.backToFrontend(res, error ?? 'invalid_request');
     }
+    let login: LoginResult;
     try {
-      const tokens = await this.auth.completeLogin(code, state, oauthCookie);
-      this.setRefreshCookie(res, tokens);
-      this.backToFrontend(res);
+      login = await this.auth.completeLogin(code, state, oauthCookie);
     } catch {
-      this.backToFrontend(res, 'login_failed');
+      return this.backToFrontend(res, 'login_failed');
     }
+    this.setRefreshCookie(res, login.tokens);
+    if (this.devShowTokens) {
+      return this.showTokens(req, res, login);
+    }
+    this.backToFrontend(res);
   }
 
   /** Step 3: React gets (and later renews) its access token. */
@@ -201,6 +211,38 @@ export class AuthController {
       tokens.refresh_token,
       this.cookie(REFRESH_COOKIE),
     );
+  }
+
+  /**
+   * DEV_SHOW_TOKENS (never in production): the login result as JSON, so the
+   * API can be tried from Swagger, Postman or curl without a frontend.
+   */
+  private showTokens(req: Request, res: Response, login: LoginResult): void {
+    const { tokens, user, profile } = login;
+    const api = `${req.protocol}://${req.get('host')}`;
+    const auth = `${api}${API_BASE_PATH}/auth`;
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({
+      warning:
+        'Development only (DEV_SHOW_TOKENS=true). Never enable in production.',
+      accessToken: tokens.access_token,
+      expiresIn: tokens.expires_in,
+      expiresAt: new Date(Date.now() + tokens.expires_in * 1000).toISOString(),
+      refreshToken: tokens.refresh_token,
+      accessTokenClaims: decodeJwt(tokens.access_token),
+      ghanaWorksUser: user,
+      profile: ProfileResponseDto.fromEntity(profile),
+      howTo: {
+        callTheApi: 'Send the header  Authorization: Bearer <accessToken>',
+        swagger: `${api}/docs -> Authorize -> paste accessToken`,
+        curl: `curl.exe ${auth}/me -H "Authorization: Bearer ${tokens.access_token}"`,
+        newAccessToken:
+          `Open ${auth}/login again. Or POST ${auth}/refresh with headers ` +
+          `Origin: ${new URL(this.frontendUrl).origin}, ${CSRF_HEADER}: 1, ` +
+          `Cookie: ${REFRESH_COOKIE.name}=<refreshToken>. ` +
+          'Each refresh token works once; the response cookie holds the next one.',
+      },
+    });
   }
 
   private backToFrontend(res: Response, error?: string): void {

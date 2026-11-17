@@ -5,7 +5,10 @@ type SampleProfile = Pick<
   'externalUserId' | 'username' | 'displayName' | 'avatarUrl' | 'bio'
 >;
 
-/** The user behind DEV_AUTH_TOKEN (see modules/auth/dev/dev-user.ts). */
+/**
+ * Owner of the seeded ready uploads (see DEV_USER_UPLOADS). Usable only when
+ * signed in as this GhanaWorks user id.
+ */
 export const DEV_USER_ID = '1024';
 
 const avatar = (name: string) =>
@@ -13,8 +16,8 @@ const avatar = (name: string) =>
 
 /**
  * Sample users for local testing (follow, feeds...). Ids start at 5001 so
- * they never clash with the dev user (1024) or real GhanaWorks ids in use.
- * They can't sign in; act on them as the dev user.
+ * they never clash with user 1024 or real GhanaWorks ids in use.
+ * They can't sign in; act on them as a signed-in GhanaWorks user.
  */
 export const SAMPLE_PROFILES: SampleProfile[] = [
   {

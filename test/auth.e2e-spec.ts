@@ -14,7 +14,6 @@ import {
 
 const FRONTEND_URL = 'https://social.example.test';
 const REDIRECT_URI = 'https://api.social.example.test/api/v1/auth/callback';
-const DEV_TOKEN = 'dev-token-for-e2e-tests';
 const CSRF = { Origin: FRONTEND_URL, 'x-csrf-protection': '1' };
 
 let mongo: MongoMemoryServer;
@@ -49,7 +48,7 @@ beforeAll(async () => {
     GHANAWORKS_REDIRECT_URI: REDIRECT_URI,
     FRONTEND_URL,
     THROTTLE_LIMIT: '10000',
-    DEV_AUTH_TOKEN: DEV_TOKEN,
+    DEV_SHOW_TOKENS: '',
     // Validated at startup; never connected to by these tests.
     STORAGE_DRIVER: 'ftp',
     FTP_HOST: 'ftp.invalid',
@@ -286,14 +285,6 @@ describe('access tokens', () => {
     await me(await ghanaWorks.sign({ aud: CLIENT_ID, sub: '999999' })).expect(
       401,
     );
-  });
-
-  it('accepts the dev token as the dev user', async () => {
-    const res = await me(DEV_TOKEN).expect(200);
-    expect(res.body.data).toMatchObject({
-      externalUserId: '1024',
-      displayName: 'Ama Mensah',
-    });
   });
 });
 

@@ -5,6 +5,7 @@ import { Readable } from 'node:stream';
 import type { StorageProvider } from '../../interfaces/storage-provider.interface.js';
 import { assertValidStorageKey } from '../../storage.errors.js';
 import type { StorageResult } from '../../storage.types.js';
+import { publicUrl } from '../../storage.url.js';
 import type { FtpStorageConfig } from '@common/config/storage.config.js';
 
 /** The part of basic-ftp's Client this provider uses (mockable in tests). */
@@ -86,12 +87,7 @@ export class FtpStorageProvider implements StorageProvider {
   }
 
   getUrl(key: string): string | null {
-    assertValidStorageKey(key);
-    if (!this.config.publicBaseUrl) {
-      return null;
-    }
-    const encoded = key.split('/').map(encodeURIComponent).join('/');
-    return `${this.config.publicBaseUrl}/${encoded}`;
+    return publicUrl(this.config.publicBaseUrl, key);
   }
 
   /** Absolute remote path, guaranteed to stay inside the root directory. */

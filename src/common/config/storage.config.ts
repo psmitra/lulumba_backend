@@ -11,6 +11,7 @@ import {
   Min,
   validateSync,
 } from 'class-validator';
+import { isAbsolute, resolve } from 'node:path';
 import { StorageDriver } from '../enums/storage-driver.enum.js';
 
 /**
@@ -19,10 +20,16 @@ import { StorageDriver } from '../enums/storage-driver.enum.js';
  * To add a backend: a StorageDriver value, its settings below, a case in
  * loadStorageConfig() and in common/storage/storage.factory.ts.
  */
-export type StorageConfig = {
-  driver: StorageDriver.Ftp;
-  ftp: FtpStorageConfig;
-};
+export type StorageConfig =
+  | { driver: StorageDriver.Ftp; ftp: FtpStorageConfig }
+  | { driver: StorageDriver.Local; local: LocalStorageConfig };
+
+export interface LocalStorageConfig {
+  /** Absolute directory all keys live under, normalized for this OS. */
+  rootPath: string;
+  /** Public URL that serves `rootPath`; no public URLs when absent. */
+  publicBaseUrl?: string;
+}
 
 export interface FtpStorageConfig {
   host: string;
@@ -48,12 +55,12 @@ export function loadStorageConfig(read: EnvReader): StorageConfig {
   switch (driver) {
     case StorageDriver.Ftp:
       return { driver, ftp: loadFtpConfig(read) };
+    case StorageDriver.Local:
+      return { driver, local: loadLocalConfig(read) };
     default:
       throw new Error(`Unsupported STORAGE_DRIVER "${String(driver)}"`);
   }
 }
-
-// ---- FTP ---------------------------------------------------------------
 
 // Unset (or `KEY=`) variables take the default instead of becoming undefined.
 const orDefault = (fallback: string) =>
@@ -64,6 +71,41 @@ const toInt = (fallback: number) =>
   Transform(({ value }) =>
     value === undefined || value === '' ? fallback : Number(value),
   );
+const emptyAsUndefined = () =>
+  Transform(({ value }) => (value === '' ? undefined : value));
+const IsPublicBaseUrl = () =>
+  IsUrl({
+    require_tld: false,
+    require_protocol: true,
+    protocols: ['http', 'https'],
+  });
+
+/**
+ * Reads `keys` into `cls` and validates them. Messages name the variables,
+ * never their values, so secrets can't leak into startup errors.
+ */
+function readEnv<T extends object>(
+  cls: new () => T,
+  keys: readonly (keyof T & string)[],
+  read: EnvReader,
+  label: string,
+  extraErrors: (env: T) => string[] = () => [],
+): T {
+  const raw = Object.fromEntries(keys.map((key) => [key, read(key)]));
+  const env = plainToInstance(cls, raw);
+  const messages = validateSync(env).flatMap((error) =>
+    Object.values(error.constraints ?? {}),
+  );
+  if (messages.length === 0) {
+    messages.push(...extraErrors(env));
+  }
+  if (messages.length > 0) {
+    throw new Error(`Invalid ${label} configuration: ${messages.join('; ')}`);
+  }
+  return env;
+}
+
+// ---- FTP ---------------------------------------------------------------
 
 class FtpEnvironment {
   @IsString()
@@ -101,13 +143,9 @@ class FtpEnvironment {
   })
   FTP_ROOT_PATH: string = '/lulumba';
 
-  @Transform(({ value }) => (value === '' ? undefined : value))
+  @emptyAsUndefined()
   @IsOptional()
-  @IsUrl({
-    require_tld: false,
-    require_protocol: true,
-    protocols: ['http', 'https'],
-  })
+  @IsPublicBaseUrl()
   FTP_PUBLIC_BASE_URL?: string;
 
   @toInt(4)
@@ -129,18 +167,8 @@ const FTP_KEYS: readonly (keyof FtpEnvironment)[] = [
   'FTP_MAX_CONNECTIONS',
 ];
 
-// Messages name the variables, never their values.
 function loadFtpConfig(read: EnvReader): FtpStorageConfig {
-  const raw = Object.fromEntries(FTP_KEYS.map((key) => [key, read(key)]));
-  const env = plainToInstance(FtpEnvironment, raw);
-  const errors = validateSync(env);
-  if (errors.length > 0) {
-    const details = errors
-      .map((error) => Object.values(error.constraints ?? {}).join(', '))
-      .join('; ');
-    throw new Error(`Invalid FTP storage configuration: ${details}`);
-  }
-
+  const env = readEnv(FtpEnvironment, FTP_KEYS, read, 'FTP storage');
   return {
     host: env.FTP_HOST,
     port: env.FTP_PORT,
@@ -152,5 +180,41 @@ function loadFtpConfig(read: EnvReader): FtpStorageConfig {
     rootPath: env.FTP_ROOT_PATH.replace(/\/+$/, ''),
     publicBaseUrl: env.FTP_PUBLIC_BASE_URL?.replace(/\/+$/, ''),
     maxConnections: env.FTP_MAX_CONNECTIONS,
+  };
+}
+
+// ---- Local disk --------------------------------------------------------
+
+class LocalEnvironment {
+  // Absolute directory, e.g. D:/wamp64/www/lulumba-uploads/lulumba.
+  @IsString({ message: 'LOCAL_STORAGE_PATH must be set' })
+  @IsNotEmpty({ message: 'LOCAL_STORAGE_PATH must be set' })
+  LOCAL_STORAGE_PATH: string;
+
+  @emptyAsUndefined()
+  @IsOptional()
+  @IsPublicBaseUrl()
+  LOCAL_STORAGE_PUBLIC_BASE_URL?: string;
+}
+
+const LOCAL_KEYS: readonly (keyof LocalEnvironment)[] = [
+  'LOCAL_STORAGE_PATH',
+  'LOCAL_STORAGE_PUBLIC_BASE_URL',
+];
+
+function loadLocalConfig(read: EnvReader): LocalStorageConfig {
+  const env = readEnv(
+    LocalEnvironment,
+    LOCAL_KEYS,
+    read,
+    'local storage',
+    ({ LOCAL_STORAGE_PATH: root }) =>
+      isAbsolute(root) && !root.split(/[\\/]/).includes('..')
+        ? []
+        : ['LOCAL_STORAGE_PATH must be an absolute path without ".."'],
+  );
+  return {
+    rootPath: resolve(env.LOCAL_STORAGE_PATH),
+    publicBaseUrl: env.LOCAL_STORAGE_PUBLIC_BASE_URL?.replace(/\/+$/, ''),
   };
 }

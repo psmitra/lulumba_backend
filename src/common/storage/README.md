@@ -4,7 +4,8 @@ One `StorageService` for every file Lulumba stores: avatars, post media,
 stories, message attachments and thumbnails. The backend is picked by
 `STORAGE_DRIVER`. Business code never knows which one it is.
 
-Only FTP/FTPS is implemented today.
+Implemented drivers: `ftp` (FTP/FTPS server) and `local` (a directory on
+this machine, for development or a single server).
 
 ## 1. Architecture
 
@@ -13,8 +14,10 @@ Only FTP/FTPS is implemented today.
                                                    │
 business module ──> StorageService ──> STORAGE_PROVIDER (StorageProvider interface)
                     (file checks,                  │
-                     key generation,               └─ FtpStorageProvider  (driver = ftp)
-                     error handling)                   └─ basic-ftp
+                     key generation,               ├─ FtpStorageProvider    (driver = ftp)
+                     error handling)               │   └─ basic-ftp
+                                                   └─ LocalStorageProvider  (driver = local)
+                                                       └─ node:fs
 ```
 
 | File | Role |
@@ -25,6 +28,8 @@ business module ──> StorageService ──> STORAGE_PROVIDER (StorageProvider
 | `common/storage/storage.factory.ts` | `StorageConfig` → provider instance |
 | `common/storage/interfaces/storage-provider.interface.ts` | The contract every backend implements |
 | `common/storage/providers/ftp/` | FTP implementation |
+| `common/storage/providers/local/` | Local disk implementation |
+| `common/storage/storage.url.ts` | Public URL from base URL + key, shared by providers |
 | `common/storage/storage.types.ts` | `StorageResult`, folders, which file kinds each folder accepts |
 | `common/storage/storage.errors.ts` | `StorageError`, `InvalidStorageKeyError`, key validation |
 
@@ -76,6 +81,21 @@ How the provider behaves:
 - **Atomic uploads.** Files are written as `.<name>.<uuid>.part` and renamed into place. A failed transfer is removed and never appears under the real key.
 - **Directories** under the root are created as needed.
 - **FTPS** verifies the server certificate against `FTP_HOST`.
+
+## 3a. Local disk configuration
+
+No server needed: files are written straight into a directory.
+
+```env
+STORAGE_DRIVER=local
+LOCAL_STORAGE_PATH=D:/wamp64/www/lulumba-uploads/lulumba   # absolute; created as needed
+LOCAL_STORAGE_PUBLIC_BASE_URL=http://localhost/lulumba-uploads/lulumba
+```
+
+- **Absolute path only.** A relative path or one containing `..` stops the app at startup. Forward slashes work on Windows too.
+- **Atomic uploads**, like FTP: written as `.<name>.<uuid>.part`, then renamed into place.
+- **Public URLs** work the same as FTP's: set `LOCAL_STORAGE_PUBLIC_BASE_URL` to whatever web server serves the directory (Apache under WAMP above), or leave it empty for `null` URLs.
+- **One machine only.** Every API instance must see the same directory, so with more than one server, use FTP (or a shared volume).
 
 ## 4. Public URLs
 
@@ -202,7 +222,7 @@ unencrypted.
 
 - The file type is detected from the content (`file-type`), so client MIME types, extensions and file names are never trusted. Executables or unknown data are rejected.
 - File names are random UUIDs, so they're unguessable and can't carry user input into paths.
-- Keys are validated in the service and again in the provider; the provider also checks the resolved path stays under `FTP_ROOT_PATH`.
+- Keys are validated in the service and again in the provider; the provider also checks the resolved path stays under `FTP_ROOT_PATH` / `LOCAL_STORAGE_PATH`.
 - Size limits are set per kind (`STORAGE_MAX_*_MB`). Also set a request body or multer limit on upload routes so oversized uploads are rejected before they are buffered.
 - Credentials are only read from env. Errors and logs never include them.
 - Upload authorization (who may upload where) belongs in the calling module. The storage module only stores.
@@ -211,8 +231,13 @@ unencrypted.
 ## 10. Tests
 
 ```bash
-npm test -- storage                    # unit tests, FTP client mocked
+npm test -- storage                    # unit tests: FTP client mocked, local provider on a temp dir
 ```
+
+On Windows, run tests from a terminal whose path starts with an uppercase
+drive letter (`D:\...`). From `d:\...` Vitest loads itself twice and every
+spec that imports from `vitest` fails with
+`Cannot read properties of undefined (reading 'config')`.
 
 Optional integration test against a real server (use a throwaway directory):
 

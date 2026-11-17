@@ -5,6 +5,7 @@ import {
   randomToken,
   safeEqual,
 } from '@common/utils/crypto.util.js';
+import type { ProfileEntity } from '@app-types/profile.types.js';
 import { ProfileResponseDto } from '@modules/profiles/dto/profile-response.dto.js';
 import { ProfilesService } from '@modules/profiles/service/profiles.service.js';
 import {
@@ -14,9 +15,11 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { DEV_USER } from '../dev/dev-user.js';
 import { GhanaWorksClient } from '../ghanaworks/ghanaworks.client.js';
-import type { TokenSet } from '../ghanaworks/ghanaworks.client.js';
+import type {
+  GhanaWorksUser,
+  TokenSet,
+} from '../ghanaworks/ghanaworks.client.js';
 import type { AuthContext } from '../interfaces/auth-context.interface.js';
 
 export interface LoginStart {
@@ -25,9 +28,16 @@ export interface LoginStart {
   oauthCookie: string;
 }
 
+export interface LoginResult {
+  tokens: TokenSet;
+  /** GhanaWorks /api/v1/auth/me */
+  user: GhanaWorksUser;
+  profile: ProfileEntity;
+}
+
 @Injectable()
 export class AuthService implements OnApplicationBootstrap {
-  private readonly devToken?: string;
+  private readonly devShowTokens: boolean;
 
   constructor(
     private readonly ghanaWorks: GhanaWorksClient,
@@ -35,14 +45,13 @@ export class AuthService implements OnApplicationBootstrap {
     private readonly logger: AppLogger,
     config: ConfigService<EnvironmentVariables, true>,
   ) {
-    this.devToken = config.get('DEV_AUTH_TOKEN', { infer: true });
+    this.devShowTokens = config.get('DEV_SHOW_TOKENS', { infer: true });
   }
 
-  async onApplicationBootstrap(): Promise<void> {
-    if (this.devToken) {
-      await this.profiles.syncFromGhanaWorks(DEV_USER);
+  onApplicationBootstrap(): void {
+    if (this.devShowTokens) {
       this.logger.warn(
-        `DEV_AUTH_TOKEN is enabled: requests with it act as dev user ${DEV_USER.id}`,
+        'DEV_SHOW_TOKENS is enabled: /auth/callback shows the access and refresh tokens instead of redirecting to the frontend',
         AuthService.name,
       );
     }
@@ -69,7 +78,7 @@ export class AuthService implements OnApplicationBootstrap {
     code: string,
     state: string,
     oauthCookie: string | undefined,
-  ): Promise<TokenSet> {
+  ): Promise<LoginResult> {
     const [expectedState, verifier] = (oauthCookie ?? '').split('.');
     if (!expectedState || !verifier || !safeEqual(state, expectedState)) {
       throw new UnauthorizedException('Invalid login state');
@@ -81,7 +90,7 @@ export class AuthService implements OnApplicationBootstrap {
     if (!profile.isActive) {
       throw new ForbiddenException('This social profile is disabled');
     }
-    return tokens;
+    return { tokens, user, profile };
   }
 
   refresh(refreshToken: string): Promise<TokenSet> {
@@ -89,15 +98,10 @@ export class AuthService implements OnApplicationBootstrap {
   }
 
   /**
-   * Resolves a bearer token to the caller: the dev token in development,
-   * otherwise a GhanaWorks access token that was issued after the user's
-   * last logout.
+   * Resolves a bearer token to the caller: a GhanaWorks access token that was
+   * issued after the user's last logout.
    */
   async authenticate(accessToken: string): Promise<AuthContext> {
-    if (this.devToken && safeEqual(accessToken, this.devToken)) {
-      return this.contextFor(String(DEV_USER.id), accessToken);
-    }
-
     let token: { sub: string; iat: number };
     try {
       token = await this.ghanaWorks.verifyAccessToken(accessToken);
@@ -121,9 +125,6 @@ export class AuthService implements OnApplicationBootstrap {
   /** Ends the session here at once, then logs out of GhanaWorks (§3.5). */
   async logout(auth: AuthContext): Promise<void> {
     await this.profiles.markLoggedOut(auth.externalUserId);
-    if (auth.accessToken === this.devToken) {
-      return;
-    }
     try {
       await this.ghanaWorks.logout(auth.accessToken);
     } catch (error) {
@@ -149,7 +150,7 @@ export class AuthService implements OnApplicationBootstrap {
   private async contextFor(
     externalUserId: string,
     accessToken: string,
-    issuedAt?: number,
+    issuedAt: number,
   ): Promise<AuthContext> {
     const profile = await this.profiles.findByExternalUserId(externalUserId);
     if (!profile) {
@@ -161,7 +162,6 @@ export class AuthService implements OnApplicationBootstrap {
     // `iat` has second precision, so a token from the same second as the
     // logout is treated as older (safe side) and rejected too.
     if (
-      issuedAt !== undefined &&
       profile.loggedOutAt &&
       Math.floor(issuedAt) <= Math.floor(profile.loggedOutAt.getTime() / 1000)
     ) {

@@ -24,7 +24,8 @@ export const SWAGGER_AUTH = {
  * Serves Swagger UI at /docs and the spec at /docs/json and /docs/yaml
  * (import either into Postman or a client generator). Every route needs a
  * bearer access token unless it is @Public(), which clears the requirement.
- * With DEV_AUTH_TOKEN set, "Authorize" with that value to try routes out.
+ * With DEV_SHOW_TOKENS=true, sign in at /api/v1/auth/login to see an access
+ * token, then "Authorize" with it to try routes out.
  */
 export function setupSwagger(
   app: NestExpressApplication,

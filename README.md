@@ -74,7 +74,7 @@ All routes live under `/api/v1` (e.g. `GET /api/v1/posts`), except `GET /health`
 
 React keeps the access token in memory and sends `Authorization: Bearer <token>`. Every route needs it unless marked `@Public()`. Tokens are verified with GhanaWorks' JWKS (`aud` must equal `GHANAWORKS_CLIENT_ID`), and tokens issued before the user's last logout are rejected.
 
-Development without GhanaWorks: set `DEV_AUTH_TOKEN` in `.env` and send `Authorization: Bearer <DEV_AUTH_TOKEN>`. It signs you in as the dev user (GhanaWorks id `1024`, Ama Mensah, see `src/modules/auth/dev/dev-user.ts`). The app refuses to start with it when `APP_ENV=production`.
+Testing the API without a frontend: set `DEV_SHOW_TOKENS=true` in `.env` and open `/api/v1/auth/login` in a browser that is signed in to GhanaWorks. Instead of redirecting to `FRONTEND_URL`, the callback shows your access token, refresh token, decoded claims and profile as JSON. Use the access token in Swagger (`/docs` → Authorize), Postman or curl; it lasts 15 minutes, then open `/api/v1/auth/login` again. The app refuses to start with it when `APP_ENV=production`.
 
 ## Deployment
 

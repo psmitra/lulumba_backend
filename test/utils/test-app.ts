@@ -43,7 +43,10 @@ export interface TestApp {
  * The real app against in-memory MongoDB and a fake GhanaWorks, configured
  * like production by configureApp(). One per spec file.
  */
-export async function startTestApp(database: string): Promise<TestApp> {
+export async function startTestApp(
+  database: string,
+  envOverrides: Record<string, string> = {},
+): Promise<TestApp> {
   const mongo = await MongoMemoryServer.create();
   const ghanaWorks = new FakeGhanaWorks();
   await ghanaWorks.start();
@@ -69,7 +72,7 @@ export async function startTestApp(database: string): Promise<TestApp> {
     GHANAWORKS_REDIRECT_URI: REDIRECT_URI,
     FRONTEND_URL,
     THROTTLE_LIMIT: '10000',
-    DEV_AUTH_TOKEN: '',
+    DEV_SHOW_TOKENS: '',
     // Validated at startup; never connected to.
     STORAGE_DRIVER: 'ftp',
     FTP_HOST: 'ftp.invalid',
@@ -78,6 +81,7 @@ export async function startTestApp(database: string): Promise<TestApp> {
     FTP_PUBLIC_BASE_URL: 'https://cdn.example.test/media',
     // Small, so the quota is reachable with small test files.
     STORAGE_USER_QUOTA_MB: '1',
+    ...envOverrides,
   });
 
   const { validateEnv } = await import('@common/config/env.validation.js');
