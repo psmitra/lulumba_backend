@@ -12,6 +12,7 @@ import {
   Get,
   HttpStatus,
   ServiceUnavailableException,
+  VERSION_NEUTRAL,
 } from '@nestjs/common';
 import { ApiOperation, ApiProperty, ApiTags } from '@nestjs/swagger';
 
@@ -31,8 +32,9 @@ class HealthDto {
   database: DatabaseHealthDto;
 }
 
+// Unversioned and outside the /api prefix: GET /health.
 @ApiTags('health')
-@Controller()
+@Controller({ version: VERSION_NEUTRAL })
 export class AppController {
   constructor(private readonly databaseService: DatabaseService) {}
 

@@ -42,7 +42,7 @@ async function post(
     updatedAt: new Date(),
   });
   const res = await request(t.http)
-    .post('/posts')
+    .post('/api/v1/posts')
     .set(as(owner.token))
     .send({
       visibility,
@@ -58,9 +58,9 @@ describe('PUT / DELETE /posts/:postId/like', () => {
     const fan = await user();
     const id = await post(owner);
     const like = () =>
-      request(t.http).put(`/posts/${id}/like`).set(as(fan.token));
+      request(t.http).put(`/api/v1/posts/${id}/like`).set(as(fan.token));
     const unlike = () =>
-      request(t.http).delete(`/posts/${id}/like`).set(as(fan.token));
+      request(t.http).delete(`/api/v1/posts/${id}/like`).set(as(fan.token));
 
     expect((await like().expect(200)).body.data).toEqual({
       liked: true,
@@ -71,12 +71,12 @@ describe('PUT / DELETE /posts/:postId/like', () => {
       likesCount: 1,
     });
     await request(t.http)
-      .put(`/posts/${id}/like`)
+      .put(`/api/v1/posts/${id}/like`)
       .set(as(owner.token))
       .expect(200);
 
     const seen = await request(t.http)
-      .get(`/posts/${id}`)
+      .get(`/api/v1/posts/${id}`)
       .set(as(fan.token))
       .expect(200);
     expect(seen.body.data).toMatchObject({ likesCount: 2, isLiked: true });
@@ -97,10 +97,13 @@ describe('PUT / DELETE /posts/:postId/like', () => {
     const id = await post(owner);
     await Promise.all(
       Array.from({ length: 5 }, () =>
-        request(t.http).put(`/posts/${id}/like`).set(as(fan.token)).expect(200),
+        request(t.http)
+          .put(`/api/v1/posts/${id}/like`)
+          .set(as(fan.token))
+          .expect(200),
       ),
     );
-    const seen = await request(t.http).get(`/posts/${id}`).expect(200);
+    const seen = await request(t.http).get(`/api/v1/posts/${id}`).expect(200);
     expect(seen.body.data.likesCount).toBe(1);
   });
 
@@ -109,18 +112,18 @@ describe('PUT / DELETE /posts/:postId/like', () => {
     const stranger = await user();
     const hidden = await post(owner, 'followers');
     await request(t.http)
-      .put(`/posts/${hidden}/like`)
+      .put(`/api/v1/posts/${hidden}/like`)
       .set(as(stranger.token))
       .expect(404);
     await request(t.http)
-      .put('/posts/0123456789abcdef01234567/like')
+      .put('/api/v1/posts/0123456789abcdef01234567/like')
       .set(as(stranger.token))
       .expect(404);
     await request(t.http)
-      .put('/posts/bad-id/like')
+      .put('/api/v1/posts/bad-id/like')
       .set(as(stranger.token))
       .expect(400);
-    await request(t.http).put(`/posts/${hidden}/like`).expect(401);
+    await request(t.http).put(`/api/v1/posts/${hidden}/like`).expect(401);
   });
 });
 
@@ -131,17 +134,17 @@ describe('GET /posts/:postId/likes', () => {
     const id = await post(owner);
     for (const liker of likers) {
       await request(t.http)
-        .put(`/posts/${id}/like`)
+        .put(`/api/v1/posts/${id}/like`)
         .set(as(liker.token))
         .expect(200);
     }
     await request(t.http)
-      .post(`/users/${likers[0]!.id}/follow`)
+      .post(`/api/v1/users/${likers[0]!.id}/follow`)
       .set(as(owner.token))
       .expect(200);
 
     const page1 = await request(t.http)
-      .get(`/posts/${id}/likes`)
+      .get(`/api/v1/posts/${id}/likes`)
       .set(as(owner.token))
       .query({ limit: 2 })
       .expect(200);
@@ -155,7 +158,7 @@ describe('GET /posts/:postId/likes', () => {
     });
 
     const page2 = await request(t.http)
-      .get(`/posts/${id}/likes`)
+      .get(`/api/v1/posts/${id}/likes`)
       .set(as(owner.token))
       .query({ limit: 2, cursor: page1.body.meta.nextCursor })
       .expect(200);
@@ -168,7 +171,7 @@ describe('GET /posts/:postId/likes', () => {
     expect(page2.body.meta).toMatchObject({ hasMore: false, nextCursor: null });
 
     // Public post: readable signed out.
-    await request(t.http).get(`/posts/${id}/likes`).expect(200);
+    await request(t.http).get(`/api/v1/posts/${id}/likes`).expect(200);
   });
 
   it('respects post visibility and blocks', async () => {
@@ -177,33 +180,35 @@ describe('GET /posts/:postId/likes', () => {
     const blocked = await user();
     const viewer = await user();
     await request(t.http)
-      .post(`/users/${owner.id}/follow`)
+      .post(`/api/v1/users/${owner.id}/follow`)
       .set(as(follower.token))
       .expect(200);
     const followersOnly = await post(owner, 'followers');
     await request(t.http)
-      .put(`/posts/${followersOnly}/like`)
+      .put(`/api/v1/posts/${followersOnly}/like`)
       .set(as(follower.token))
       .expect(200);
 
-    await request(t.http).get(`/posts/${followersOnly}/likes`).expect(404);
     await request(t.http)
-      .get(`/posts/${followersOnly}/likes`)
+      .get(`/api/v1/posts/${followersOnly}/likes`)
+      .expect(404);
+    await request(t.http)
+      .get(`/api/v1/posts/${followersOnly}/likes`)
       .set(as(viewer.token))
       .expect(404);
     await request(t.http)
-      .get(`/posts/${followersOnly}/likes`)
+      .get(`/api/v1/posts/${followersOnly}/likes`)
       .set(as(follower.token))
       .expect(200);
 
     // A liker blocked by the viewer is left out of the list.
     const open = await post(owner);
     await request(t.http)
-      .put(`/posts/${open}/like`)
+      .put(`/api/v1/posts/${open}/like`)
       .set(as(blocked.token))
       .expect(200);
     await request(t.http)
-      .put(`/posts/${open}/like`)
+      .put(`/api/v1/posts/${open}/like`)
       .set(as(follower.token))
       .expect(200);
     await t.connection.collection('blocks').insertOne({
@@ -212,7 +217,7 @@ describe('GET /posts/:postId/likes', () => {
       createdAt: new Date(),
     });
     const list = await request(t.http)
-      .get(`/posts/${open}/likes`)
+      .get(`/api/v1/posts/${open}/likes`)
       .set(as(viewer.token))
       .expect(200);
     expect(

@@ -13,12 +13,12 @@ afterAll(async () => {
 
 const as = (u: TestUser) => ({ Authorization: `Bearer ${u.token}` });
 const save = (u: TestUser, postId: string) =>
-  request(t.http).put(`/posts/${postId}/bookmark`).set(as(u));
+  request(t.http).put(`/api/v1/posts/${postId}/bookmark`).set(as(u));
 const unsave = (u: TestUser, postId: string) =>
-  request(t.http).delete(`/posts/${postId}/bookmark`).set(as(u));
+  request(t.http).delete(`/api/v1/posts/${postId}/bookmark`).set(as(u));
 const shortlist = (u: TestUser, query: Record<string, string | number> = {}) =>
   request(t.http)
-    .get('/users/me/bookmarks')
+    .get('/api/v1/users/me/bookmarks')
     .set(as(u))
     .query(query)
     .expect(200);
@@ -28,17 +28,15 @@ const ids = (res: request.Response) =>
 /** Turns a post's only attachment into a document. */
 async function makeDocumentPost(postId: string) {
   const { Types } = await import('mongoose');
-  await t.connection
-    .collection('posts')
-    .updateOne(
-      { _id: new Types.ObjectId(postId) },
-      {
-        $set: {
-          mediaTypes: ['document'],
-          'attachments.0.mediaType': 'document',
-        },
+  await t.connection.collection('posts').updateOne(
+    { _id: new Types.ObjectId(postId) },
+    {
+      $set: {
+        mediaTypes: ['document'],
+        'attachments.0.mediaType': 'document',
       },
-    );
+    },
+  );
 }
 
 describe('PUT / DELETE /posts/:postId/bookmark', () => {
@@ -61,7 +59,7 @@ describe('PUT / DELETE /posts/:postId/bookmark', () => {
     ).toBe(1);
 
     const seen = await request(t.http)
-      .get(`/posts/${postId}`)
+      .get(`/api/v1/posts/${postId}`)
       .set(as(me))
       .expect(200);
     expect(seen.body.data.isSaved).toBe(true);
@@ -80,7 +78,9 @@ describe('PUT / DELETE /posts/:postId/bookmark', () => {
     await save(me, followersOnly).expect(404);
     await save(me, '0123456789abcdef01234567').expect(404);
     await save(me, 'nope').expect(400);
-    await request(t.http).put(`/posts/${followersOnly}/bookmark`).expect(401);
+    await request(t.http)
+      .put(`/api/v1/posts/${followersOnly}/bookmark`)
+      .expect(401);
   });
 });
 
@@ -122,7 +122,7 @@ describe('GET /users/me/bookmarks', () => {
     const owner = await t.user();
     const me = await t.user();
     await request(t.http)
-      .post(`/users/${owner.id}/follow`)
+      .post(`/api/v1/users/${owner.id}/follow`)
       .set(as(me))
       .expect(200);
     const deleted = await t.createPost(owner);
@@ -134,11 +134,11 @@ describe('GET /users/me/bookmarks', () => {
     expect(ids(await shortlist(me))).toEqual([kept, followersOnly, deleted]);
 
     await request(t.http)
-      .delete(`/posts/${deleted}`)
+      .delete(`/api/v1/posts/${deleted}`)
       .set(as(owner))
       .expect(200);
     await request(t.http)
-      .delete(`/users/${owner.id}/follow`)
+      .delete(`/api/v1/users/${owner.id}/follow`)
       .set(as(me))
       .expect(204);
     expect(ids(await shortlist(me))).toEqual([kept]);

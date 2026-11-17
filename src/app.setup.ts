@@ -1,7 +1,13 @@
+import {
+  API_DEFAULT_VERSION,
+  API_PREFIX,
+  API_PREFIX_EXCLUDE,
+} from '@common/constants/api.constants.js';
 import type { EnvironmentVariables } from '@common/config/env.validation.js';
 import { Environment } from '@common/enums/environment.enum.js';
 import { setupSwagger } from '@common/swagger/swagger.setup.js';
 import { CSRF_HEADER } from '@modules/auth/auth.constants.js';
+import { VersioningType } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import cookieParser from 'cookie-parser';
 import type { NextFunction, Request, Response } from 'express';
@@ -16,6 +22,14 @@ export function configureApp(
   env: EnvironmentVariables,
 ): void {
   const production = env.APP_ENV === Environment.Production;
+
+  // Routes become /api/v1/...; a controller or handler can opt into another
+  // version with @Version('2'). Must run before Swagger reads the routes.
+  app.setGlobalPrefix(API_PREFIX, { exclude: API_PREFIX_EXCLUDE });
+  app.enableVersioning({
+    type: VersioningType.URI,
+    defaultVersion: API_DEFAULT_VERSION,
+  });
 
   // Behind a load balancer: real client IP (rate limits) and protocol.
   app.set('trust proxy', env.TRUST_PROXY_HOPS);

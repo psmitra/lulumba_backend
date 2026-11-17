@@ -18,13 +18,16 @@ const feed = (
   u: TestUser,
   path: string,
   query: Record<string, string | number> = {},
-) => request(t.http).get(`/feed/${path}`).set(as(u)).query(query);
+) => request(t.http).get(`/api/v1/feed/${path}`).set(as(u)).query(query);
 const ids = (res: request.Response): string[] =>
   res.body.data.map((post: { id: string }) => post.id);
 const follow = (u: TestUser, other: TestUser) =>
-  request(t.http).post(`/users/${other.id}/follow`).set(as(u)).expect(200);
+  request(t.http)
+    .post(`/api/v1/users/${other.id}/follow`)
+    .set(as(u))
+    .expect(200);
 const like = (u: TestUser, postId: string) =>
-  request(t.http).put(`/posts/${postId}/like`).set(as(u)).expect(200);
+  request(t.http).put(`/api/v1/posts/${postId}/like`).set(as(u)).expect(200);
 
 /** Every page of a feed, two posts at a time. */
 async function allPages(
@@ -77,7 +80,7 @@ async function postWith(
     updatedAt: new Date(),
   });
   const res = await request(t.http)
-    .post('/posts')
+    .post('/api/v1/posts')
     .set(as(owner))
     .send({
       visibility,
@@ -109,19 +112,17 @@ describe('GET /feed/home', () => {
     ];
     await follow(me, friend);
     await follow(me, blocked);
-    await t.connection
-      .collection('blocks')
-      .insertOne({
-        blockerId: me.id,
-        blockedId: blocked.id,
-        createdAt: new Date(),
-      });
+    await t.connection.collection('blocks').insertOne({
+      blockerId: me.id,
+      blockedId: blocked.id,
+      createdAt: new Date(),
+    });
 
     const friendPublic = await t.createPost(friend);
     const friendFollowers = await t.createPost(friend, 'followers');
     const deleted = await t.createPost(friend);
     await request(t.http)
-      .delete(`/posts/${deleted}`)
+      .delete(`/api/v1/posts/${deleted}`)
       .set(as(friend))
       .expect(200);
     const strangerPublic = await t.createPost(stranger);
@@ -188,7 +189,7 @@ describe('GET /feed/home', () => {
     await feed(me, 'home', { cursor: 'forged' }).expect(400);
     const latest = await feed(me, 'latest', { limit: 1 }).expect(200);
     await feed(me, 'home', { cursor: latest.body.meta.nextCursor }).expect(400);
-    await request(t.http).get('/feed/home').expect(401);
+    await request(t.http).get('/api/v1/feed/home').expect(401);
   });
 });
 

@@ -1,4 +1,5 @@
 import type { EnvironmentVariables } from '@common/config/env.validation.js';
+import { API_BASE_PATH } from '@common/constants/api.constants.js';
 import { CSRF_HEADER, REFRESH_COOKIE } from '@modules/auth/auth.constants.js';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
@@ -33,8 +34,9 @@ export function setupSwagger(
     .setTitle(`${env.APP_NAME} API`)
     .setDescription(
       `${env.APP_NAME} social API. Sign in through GhanaWorks at ` +
-        '`GET /auth/login`; the React app then gets an access token from ' +
-        '`POST /auth/refresh` and sends it as `Authorization: Bearer <token>`.' +
+        `\`GET ${API_BASE_PATH}/auth/login\`; the React app then gets an ` +
+        `access token from \`POST ${API_BASE_PATH}/auth/refresh\` and sends ` +
+        'it as `Authorization: Bearer <token>`.' +
         `\n\nExport this spec: [JSON](/${SWAGGER_EXPORT_PATHS.json}) · ` +
         `[YAML](/${SWAGGER_EXPORT_PATHS.yaml})`,
     )

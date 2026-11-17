@@ -61,14 +61,16 @@ $ npm run test:cov
 
 Users sign in with their GhanaWorks account (OAuth 2.0 Authorization Code + PKCE, per GhanaWorks' *SSO Integration* guide). This API is the confidential client; React never sees the client secret or the refresh token.
 
+All routes live under `/api/v1` (e.g. `GET /api/v1/posts`), except `GET /health`. Add a new version per controller or handler with `@Version('2')`.
+
 | Endpoint | Used by | What it does |
 |---|---|---|
-| `GET /auth/login` | Browser link | Redirects to GhanaWorks `/oauth/authorize` |
-| `GET /auth/callback` | GhanaWorks redirect | Exchanges the code, syncs the profile from `/api/v1/auth/me`, sets the HttpOnly refresh cookie, redirects to `FRONTEND_URL` (`?auth_error=...` on failure) |
-| `POST /auth/refresh` | React | Returns `{ accessToken, expiresIn }` and rotates the cookie. Send `credentials: 'include'` and header `X-CSRF-Protection: 1`. |
-| `GET /auth/me` | React | Current profile |
-| `POST /auth/logout` | React | Logs out here, in GhanaWorks and in every portal |
-| `POST /auth/backchannel-logout` | GhanaWorks | Register this URL as the client's `--logout-url` |
+| `GET /api/v1/auth/login` | Browser link | Redirects to GhanaWorks `/oauth/authorize` |
+| `GET /api/v1/auth/callback` | GhanaWorks redirect | Exchanges the code, syncs the profile from GhanaWorks' `/api/v1/auth/me`, sets the HttpOnly refresh cookie, redirects to `FRONTEND_URL` (`?auth_error=...` on failure) |
+| `POST /api/v1/auth/refresh` | React | Returns `{ accessToken, expiresIn }` and rotates the cookie. Send `credentials: 'include'` and header `X-CSRF-Protection: 1`. |
+| `GET /api/v1/auth/me` | React | Current profile |
+| `POST /api/v1/auth/logout` | React | Logs out here, in GhanaWorks and in every portal |
+| `POST /api/v1/auth/backchannel-logout` | GhanaWorks | Register this URL as the client's `--logout-url` |
 
 React keeps the access token in memory and sends `Authorization: Bearer <token>`. Every route needs it unless marked `@Public()`. Tokens are verified with GhanaWorks' JWKS (`aud` must equal `GHANAWORKS_CLIENT_ID`), and tokens issued before the user's last logout are rejected.
 

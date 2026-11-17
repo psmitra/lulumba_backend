@@ -50,7 +50,7 @@ export class ApiErrorBodyDto {
   @ApiPropertyOptional({ type: [ApiErrorDetailDto] })
   details?: ApiErrorDetailDto[];
 
-  @ApiProperty({ example: '/auth/me' })
+  @ApiProperty({ example: '/api/v1/auth/me' })
   path: string;
 
   @ApiProperty({ format: 'date-time' })

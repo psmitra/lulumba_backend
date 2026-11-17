@@ -13,7 +13,7 @@ import {
 } from './utils/fake-ghanaworks.js';
 
 const FRONTEND_URL = 'https://social.example.test';
-const REDIRECT_URI = 'https://api.social.example.test/auth/callback';
+const REDIRECT_URI = 'https://api.social.example.test/api/v1/auth/callback';
 const DEV_TOKEN = 'dev-token-for-e2e-tests';
 const CSRF = { Origin: FRONTEND_URL, 'x-csrf-protection': '1' };
 
@@ -105,7 +105,7 @@ const pair = (setCookie: string) => setCookie.split(';')[0];
 
 /** GET /auth/login, then what GhanaWorks would redirect back with. */
 async function startLogin(user: GhanaWorksUser) {
-  const res = await request(http).get('/auth/login').expect(302);
+  const res = await request(http).get('/api/v1/auth/login').expect(302);
   const location = new URL(res.headers.location as string);
   const code = ghanaWorks.issueCode(
     user,
@@ -123,7 +123,7 @@ async function startLogin(user: GhanaWorksUser) {
 async function signIn(user: GhanaWorksUser) {
   const { code, state, oauthCookie } = await startLogin(user);
   const callback = await request(http)
-    .get('/auth/callback')
+    .get('/api/v1/auth/callback')
     .query({ code, state })
     .set('Cookie', pair(oauthCookie))
     .expect(302);
@@ -138,11 +138,16 @@ async function signIn(user: GhanaWorksUser) {
 }
 
 function refresh(cookie: string) {
-  return request(http).post('/auth/refresh').set(CSRF).set('Cookie', cookie);
+  return request(http)
+    .post('/api/v1/auth/refresh')
+    .set(CSRF)
+    .set('Cookie', cookie);
 }
 
 function me(token: string) {
-  return request(http).get('/auth/me').set('Authorization', `Bearer ${token}`);
+  return request(http)
+    .get('/api/v1/auth/me')
+    .set('Authorization', `Bearer ${token}`);
 }
 
 describe('sign in with GhanaWorks', () => {
@@ -161,7 +166,7 @@ describe('sign in with GhanaWorks', () => {
     });
     expect(oauthCookie).toMatch(/HttpOnly/);
     expect(oauthCookie).toMatch(/SameSite=Lax/);
-    expect(oauthCookie).toMatch(/Path=\/auth\/callback/);
+    expect(oauthCookie).toMatch(/Path=\/api\/v1\/auth\/callback/);
   });
 
   it('signs in, creates the profile from /auth/me and keeps tokens out of the URL', async () => {
@@ -169,7 +174,7 @@ describe('sign in with GhanaWorks', () => {
     const { code, state, oauthCookie } = await startLogin(user);
 
     const callback = await request(http)
-      .get('/auth/callback')
+      .get('/api/v1/auth/callback')
       .query({ code, state })
       .set('Cookie', pair(oauthCookie))
       .expect(302);
@@ -177,7 +182,7 @@ describe('sign in with GhanaWorks', () => {
     const refreshCookie = cookieFrom(callback, 'lulumba_rt')!;
     expect(refreshCookie).toMatch(/HttpOnly/);
     expect(refreshCookie).toMatch(/SameSite=Strict/);
-    expect(refreshCookie).toMatch(/Path=\/auth/);
+    expect(refreshCookie).toMatch(/Path=\/api\/v1\/auth/);
 
     const refreshed = await refresh(pair(refreshCookie)).expect(200);
     const profile = await me(refreshed.body.data.accessToken).expect(200);
@@ -221,7 +226,7 @@ describe('sign in with GhanaWorks', () => {
     const { code, oauthCookie } = await startLogin(ghanaWorksUser());
 
     const wrongState = await request(http)
-      .get('/auth/callback')
+      .get('/api/v1/auth/callback')
       .query({ code, state: 'forged' })
       .set('Cookie', pair(oauthCookie))
       .expect(302);
@@ -231,7 +236,7 @@ describe('sign in with GhanaWorks', () => {
     expect(cookieFrom(wrongState, 'lulumba_rt')).toBeUndefined();
 
     const noCookie = await request(http)
-      .get('/auth/callback')
+      .get('/api/v1/auth/callback')
       .query({ code, state: 'x' })
       .expect(302);
     expect(noCookie.headers.location).toContain('auth_error=login_failed');
@@ -239,7 +244,7 @@ describe('sign in with GhanaWorks', () => {
 
   it('passes GhanaWorks errors back to the frontend', async () => {
     const res = await request(http)
-      .get('/auth/callback')
+      .get('/api/v1/auth/callback')
       .query({ error: 'access_denied', state: 'x' })
       .expect(302);
     expect(res.headers.location).toBe(
@@ -254,7 +259,7 @@ describe('access tokens', () => {
   }).privateKey;
 
   it('requires a token on every non-public route', async () => {
-    await request(http).get('/auth/me').expect(401);
+    await request(http).get('/api/v1/auth/me').expect(401);
     await me('not-a-jwt').expect(401);
     await request(http).get('/health').expect(200);
   });
@@ -306,16 +311,16 @@ describe('refresh', () => {
   });
 
   it('needs the cookie and passes the CSRF check', async () => {
-    await request(http).post('/auth/refresh').set(CSRF).expect(401);
+    await request(http).post('/api/v1/auth/refresh').set(CSRF).expect(401);
 
     const { cookie } = await signIn(ghanaWorksUser());
     await request(http)
-      .post('/auth/refresh')
+      .post('/api/v1/auth/refresh')
       .set('Cookie', cookie)
       .set('x-csrf-protection', '1')
       .expect(403);
     await request(http)
-      .post('/auth/refresh')
+      .post('/api/v1/auth/refresh')
       .set('Cookie', cookie)
       .set('Origin', FRONTEND_URL)
       .expect(403);
@@ -324,7 +329,7 @@ describe('refresh', () => {
   it('allows CORS only from the frontend', async () => {
     const preflight = (origin: string) =>
       request(http)
-        .options('/auth/refresh')
+        .options('/api/v1/auth/refresh')
         .set('Origin', origin)
         .set('Access-Control-Request-Method', 'POST');
 
@@ -342,7 +347,7 @@ describe('logout', () => {
     const { accessToken, cookie } = await signIn(user);
 
     const res = await request(http)
-      .post('/auth/logout')
+      .post('/api/v1/auth/logout')
       .set('Authorization', `Bearer ${accessToken}`)
       .expect(204);
     expect(cookieFrom(res, 'lulumba_rt')).toMatch(/Expires=Thu, 01 Jan 1970/);
@@ -358,7 +363,7 @@ describe('logout', () => {
     await me(accessToken).expect(200);
 
     await request(http)
-      .post('/auth/backchannel-logout')
+      .post('/api/v1/auth/backchannel-logout')
       .type('form')
       .send({ logout_token: await ghanaWorks.logoutToken(String(user.id)) })
       .expect(200);
@@ -375,7 +380,7 @@ describe('logout', () => {
     }).privateKey;
     const post = (logoutToken?: string) =>
       request(http)
-        .post('/auth/backchannel-logout')
+        .post('/api/v1/auth/backchannel-logout')
         .type('form')
         .send(logoutToken ? { logout_token: logoutToken } : {});
 
@@ -396,15 +401,16 @@ describe('API docs', () => {
     const { body } = await request(http).get('/docs/json').expect(200);
 
     expect(body.security).toEqual([{ bearer: [] }]);
-    expect(body.paths['/auth/me'].get.security).toBeUndefined();
+    expect(body.paths['/api/v1/auth/me'].get.security).toBeUndefined();
     expect(body.paths['/health'].get.security).toEqual([{}]);
-    expect(body.paths['/auth/refresh'].post.security).toEqual([
+    expect(body.paths['/api/v1/auth/refresh'].post.security).toEqual([
       { 'refresh-cookie': [], csrf: [] },
     ]);
-    expect(body.paths['/auth/callback']).toBeUndefined();
+    expect(body.paths['/api/v1/auth/callback']).toBeUndefined();
     expect(
-      body.paths['/auth/me'].get.responses['200'].content['application/json']
-        .schema.properties.data,
+      body.paths['/api/v1/auth/me'].get.responses['200'].content[
+        'application/json'
+      ].schema.properties.data,
     ).toEqual({ $ref: '#/components/schemas/ProfileResponseDto' });
   });
 });
@@ -417,7 +423,7 @@ describe('follow', () => {
     const bob = ghanaWorksUser();
     const { accessToken: aliceToken } = await signIn(alice);
     await signIn(bob);
-    const bobUrl = `/users/${bob.id}`;
+    const bobUrl = `/api/v1/users/${bob.id}`;
 
     for (let i = 0; i < 2; i++) {
       const res = await request(http)
@@ -462,7 +468,7 @@ describe('follow', () => {
       .set(as(aliceToken))
       .expect(204);
     const after = await request(http)
-      .get(`/users/${alice.id}/following`)
+      .get(`/api/v1/users/${alice.id}/following`)
       .set(as(aliceToken))
       .expect(200);
     expect(after.body.data).toHaveLength(0);
@@ -475,11 +481,11 @@ describe('follow', () => {
     await signIn(bob);
 
     await request(http)
-      .post(`/users/${alice.id}/follow`)
+      .post(`/api/v1/users/${alice.id}/follow`)
       .set(as(accessToken))
       .expect(400);
     await request(http)
-      .post('/users/no-such-user/follow')
+      .post('/api/v1/users/no-such-user/follow')
       .set(as(accessToken))
       .expect(404);
 
@@ -489,7 +495,7 @@ describe('follow', () => {
       createdAt: new Date(),
     });
     await request(http)
-      .post(`/users/${bob.id}/follow`)
+      .post(`/api/v1/users/${bob.id}/follow`)
       .set(as(accessToken))
       .expect(403);
   });

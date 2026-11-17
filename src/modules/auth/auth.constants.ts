@@ -1,3 +1,5 @@
+import { API_BASE_PATH } from '@common/constants/api.constants.js';
+
 export const IS_PUBLIC_KEY = 'auth:isPublic';
 export const IS_OPTIONAL_AUTH_KEY = 'auth:isOptional';
 
@@ -10,7 +12,7 @@ export const CSRF_HEADER = 'x-csrf-protection';
 /** GhanaWorks refresh token. HttpOnly; React never sees it. */
 export const REFRESH_COOKIE = {
   name: 'lulumba_rt',
-  path: '/auth',
+  path: `${API_BASE_PATH}/auth`,
   sameSite: 'strict',
   maxAgeMs: 30 * 24 * 60 * 60 * 1000,
 } as const;
@@ -21,7 +23,7 @@ export const REFRESH_COOKIE = {
  */
 export const OAUTH_COOKIE = {
   name: 'lulumba_oauth',
-  path: '/auth/callback',
+  path: `${API_BASE_PATH}/auth/callback`,
   sameSite: 'lax',
   maxAgeMs: 10 * 60 * 1000,
 } as const;

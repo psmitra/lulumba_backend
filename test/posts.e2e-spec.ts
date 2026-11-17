@@ -46,7 +46,7 @@ async function author() {
 }
 
 function createPost(token: string, body: Record<string, unknown>) {
-  return request(t.http).post('/posts').set(as(token)).send(body);
+  return request(t.http).post('/api/v1/posts').set(as(token)).send(body);
 }
 
 describe('POST /posts', () => {
@@ -124,7 +124,7 @@ describe('POST /posts', () => {
       visibility: 'everyone',
       attachments: [{ mediaId: new Types.ObjectId().toString(), sortOrder: 0 }],
     }).expect(400);
-    await request(t.http).post('/posts').send({}).expect(401);
+    await request(t.http).post('/api/v1/posts').send({}).expect(401);
   });
 
   it('returns the same post when retried with an idempotency key', async () => {
@@ -146,7 +146,7 @@ describe('GET /posts/:postId', () => {
     const owner = await author();
     const follower = await author();
     const stranger = await author();
-    const ownerUrl = `/users/${owner.user.id}`;
+    const ownerUrl = `/api/v1/users/${owner.user.id}`;
     await request(t.http)
       .post(`${ownerUrl}/follow`)
       .set(as(follower.token))
@@ -164,8 +164,8 @@ describe('GET /posts/:postId', () => {
         { mediaId: await insertMedia(owner.user.id), sortOrder: 0 },
       ],
     });
-    const publicUrl = `/posts/${publicPost.body.data.id}`;
-    const followersUrl = `/posts/${followersPost.body.data.id}`;
+    const publicUrl = `/api/v1/posts/${publicPost.body.data.id}`;
+    const followersUrl = `/api/v1/posts/${followersPost.body.data.id}`;
 
     await request(t.http).get(publicUrl).expect(200);
     await request(t.http).get(followersUrl).expect(401);
@@ -189,7 +189,7 @@ describe('GET /posts/:postId', () => {
         meta: null,
       });
     await request(t.http).get(publicUrl).expect(404);
-    await request(t.http).get('/posts/not-an-id').expect(400);
+    await request(t.http).get('/api/v1/posts/not-an-id').expect(400);
   });
 });
 
@@ -211,7 +211,7 @@ describe('PATCH and DELETE /posts/:postId', () => {
         { mediaId: c, sortOrder: 2 },
       ],
     });
-    const url = `/posts/${created.body.data.id}`;
+    const url = `/api/v1/posts/${created.body.data.id}`;
 
     const res = await request(t.http)
       .patch(url)
@@ -283,7 +283,7 @@ describe('GET /posts', () => {
 
     const list = (query: Record<string, string | number>) =>
       request(t.http)
-        .get('/posts')
+        .get('/api/v1/posts')
         .set(as(viewer.token))
         .query(query)
         .expect(200);
@@ -316,7 +316,7 @@ describe('GET /posts', () => {
     expect(documents.body.data).toHaveLength(1);
 
     await request(t.http)
-      .get('/posts')
+      .get('/api/v1/posts')
       .set(as(viewer.token))
       .query({ cursor: 'garbage' })
       .expect(400);
@@ -333,14 +333,14 @@ describe('GET /posts', () => {
     });
     const userPosts = () =>
       request(t.http)
-        .get('/posts')
+        .get('/api/v1/posts')
         .set(as(viewer.token))
         .query({ userId: String(owner.user.id) })
         .expect(200);
 
     expect((await userPosts()).body.data).toHaveLength(0);
     await request(t.http)
-      .post(`/users/${owner.user.id}/follow`)
+      .post(`/api/v1/users/${owner.user.id}/follow`)
       .set(as(viewer.token))
       .expect(200);
     expect((await userPosts()).body.data).toHaveLength(1);

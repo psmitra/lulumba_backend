@@ -19,10 +19,10 @@ afterAll(async () => {
 const as = (u: TestUser) => ({ Authorization: `Bearer ${u.token}` });
 
 const share = (u: TestUser, postId: string, body: Record<string, unknown>) =>
-  request(t.http).post(`/posts/${postId}/shares`).set(as(u)).send(body);
+  request(t.http).post(`/api/v1/posts/${postId}/shares`).set(as(u)).send(body);
 
 const sharesCount = async (postId: string) =>
-  (await request(t.http).get(`/posts/${postId}`).expect(200)).body.data
+  (await request(t.http).get(`/api/v1/posts/${postId}`).expect(200)).body.data
     .sharesCount as number;
 
 describe('POST /posts/:postId/shares', () => {
@@ -84,7 +84,7 @@ describe('POST /posts/:postId/shares', () => {
       recipientUserId: 'no-such-user',
     }).expect(404);
     await request(t.http)
-      .post(`/posts/${postId}/shares`)
+      .post(`/api/v1/posts/${postId}/shares`)
       .send({ shareType: 'copy_link' })
       .expect(401);
   });
@@ -95,7 +95,7 @@ describe('POST /posts/:postId/shares', () => {
     const outsider = await t.user();
     const blocked = await t.user();
     await request(t.http)
-      .post(`/users/${owner.id}/follow`)
+      .post(`/api/v1/users/${owner.id}/follow`)
       .set(as(follower))
       .expect(200);
     const followersOnly = await t.createPost(owner, 'followers');
@@ -133,27 +133,29 @@ describe('GET /posts/:postId/share-link', () => {
     const followersOnly = await t.createPost(owner, 'followers');
 
     const link = await request(t.http)
-      .get(`/posts/${open}/share-link`)
+      .get(`/api/v1/posts/${open}/share-link`)
       .expect(200);
     expect(link.body.data).toEqual({
       shareUrl: `${FRONTEND_URL}/posts/${open}`,
       visibility: 'public',
     });
 
-    await request(t.http).get(`/posts/${followersOnly}/share-link`).expect(404);
     await request(t.http)
-      .get(`/posts/${followersOnly}/share-link`)
+      .get(`/api/v1/posts/${followersOnly}/share-link`)
+      .expect(404);
+    await request(t.http)
+      .get(`/api/v1/posts/${followersOnly}/share-link`)
       .set(as(stranger))
       .expect(404);
     const own = await request(t.http)
-      .get(`/posts/${followersOnly}/share-link`)
+      .get(`/api/v1/posts/${followersOnly}/share-link`)
       .set(as(owner))
       .expect(200);
     expect(own.body.data.visibility).toBe('followers');
 
     // The link grants nothing by itself: the post stays followers-only.
     await request(t.http)
-      .get(`/posts/${followersOnly}`)
+      .get(`/api/v1/posts/${followersOnly}`)
       .set(as(stranger))
       .expect(403);
   });

@@ -14,16 +14,19 @@ afterAll(async () => {
 const as = (u: TestUser) => ({ Authorization: `Bearer ${u.token}` });
 
 const comment = (u: TestUser, postId: string, body: string) =>
-  request(t.http).post(`/posts/${postId}/comments`).set(as(u)).send({ body });
+  request(t.http)
+    .post(`/api/v1/posts/${postId}/comments`)
+    .set(as(u))
+    .send({ body });
 
 const reply = (u: TestUser, commentId: string, body: string) =>
   request(t.http)
-    .post(`/comments/${commentId}/replies`)
+    .post(`/api/v1/comments/${commentId}/replies`)
     .set(as(u))
     .send({ body });
 
 const counts = async (postId: string) =>
-  (await request(t.http).get(`/posts/${postId}`).expect(200)).body.data
+  (await request(t.http).get(`/api/v1/posts/${postId}`).expect(200)).body.data
     .commentsCount as number;
 
 describe('comments', () => {
@@ -49,17 +52,17 @@ describe('comments', () => {
     const bodies = (res: request.Response) =>
       res.body.data.map((c: { body: string }) => c.body);
     const oldest = await request(t.http)
-      .get(`/posts/${postId}/comments`)
+      .get(`/api/v1/posts/${postId}/comments`)
       .query({ limit: 2 })
       .expect(200);
     expect(bodies(oldest)).toEqual(['Beautiful work!', 'Thank you']);
     const rest = await request(t.http)
-      .get(`/posts/${postId}/comments`)
+      .get(`/api/v1/posts/${postId}/comments`)
       .query({ limit: 2, cursor: oldest.body.meta.nextCursor })
       .expect(200);
     expect(bodies(rest)).toEqual(['How much?']);
     const newest = await request(t.http)
-      .get(`/posts/${postId}/comments`)
+      .get(`/api/v1/posts/${postId}/comments`)
       .query({ sort: 'newest' })
       .expect(200);
     expect(bodies(newest)).toEqual([
@@ -70,7 +73,7 @@ describe('comments', () => {
 
     const id = first.body.data.id as string;
     const edited = await request(t.http)
-      .patch(`/comments/${id}`)
+      .patch(`/api/v1/comments/${id}`)
       .set(as(fan))
       .send({ body: 'Beautiful work, really!' })
       .expect(200);
@@ -79,7 +82,7 @@ describe('comments', () => {
       isEdited: true,
     });
     await request(t.http)
-      .patch(`/comments/${id}`)
+      .patch(`/api/v1/comments/${id}`)
       .set(as(owner))
       .send({ body: 'hacked' })
       .expect(403);
@@ -94,9 +97,11 @@ describe('comments', () => {
     await comment(stranger, postId, '   ').expect(400);
     await comment(stranger, postId, 'x'.repeat(2001)).expect(400);
     await comment(stranger, followersOnly, 'hi').expect(404);
-    await request(t.http).get(`/posts/${followersOnly}/comments`).expect(404);
     await request(t.http)
-      .post(`/posts/${postId}/comments`)
+      .get(`/api/v1/posts/${followersOnly}/comments`)
+      .expect(404);
+    await request(t.http)
+      .post(`/api/v1/posts/${postId}/comments`)
       .send({ body: 'hi' })
       .expect(401);
 
@@ -121,7 +126,7 @@ describe('comments', () => {
       createdAt: new Date(),
     });
     const list = await request(t.http)
-      .get(`/posts/${postId}/comments`)
+      .get(`/api/v1/posts/${postId}/comments`)
       .set(as(viewer))
       .expect(200);
     expect(list.body.data.map((c: { body: string }) => c.body)).toEqual([
@@ -150,7 +155,7 @@ describe('replies', () => {
     await reply(fan, r1.body.data.id, 'nested').expect(400);
 
     const list = await request(t.http)
-      .get(`/comments/${parent}/replies`)
+      .get(`/api/v1/comments/${parent}/replies`)
       .query({ limit: 1 })
       .expect(200);
     expect(list.body.data.map((r: { body: string }) => r.body)).toEqual([
@@ -159,7 +164,7 @@ describe('replies', () => {
     expect(list.body.meta.hasMore).toBe(true);
 
     const comments = await request(t.http)
-      .get(`/posts/${postId}/comments`)
+      .get(`/api/v1/posts/${postId}/comments`)
       .expect(200);
     expect(comments.body.data[0]).toMatchObject({ repliesCount: 2 });
     // Replies are not inline, but count towards the post.
@@ -168,29 +173,32 @@ describe('replies', () => {
 
     const replyId = r1.body.data.id as string;
     await request(t.http)
-      .patch(`/replies/${replyId}`)
+      .patch(`/api/v1/replies/${replyId}`)
       .set(as(owner))
       .send({ body: 'GHS 2,400' })
       .expect(200);
     await request(t.http)
-      .patch(`/replies/${replyId}`)
+      .patch(`/api/v1/replies/${replyId}`)
       .set(as(fan))
       .send({ body: 'x' })
       .expect(403);
     // A reply id is not a comment, and the other way round.
     await request(t.http)
-      .patch(`/comments/${replyId}`)
+      .patch(`/api/v1/comments/${replyId}`)
       .set(as(owner))
       .send({ body: 'x' })
       .expect(404);
-    await request(t.http).delete(`/replies/${parent}`).set(as(fan)).expect(404);
+    await request(t.http)
+      .delete(`/api/v1/replies/${parent}`)
+      .set(as(fan))
+      .expect(404);
 
     await request(t.http)
-      .delete(`/replies/${replyId}`)
+      .delete(`/api/v1/replies/${replyId}`)
       .set(as(fan))
       .expect(403);
     await request(t.http)
-      .delete(`/replies/${replyId}`)
+      .delete(`/api/v1/replies/${replyId}`)
       .set(as(owner))
       .expect(200, {
         success: true,
@@ -199,7 +207,7 @@ describe('replies', () => {
         meta: null,
       });
     await request(t.http)
-      .delete(`/replies/${replyId}`)
+      .delete(`/api/v1/replies/${replyId}`)
       .set(as(owner))
       .expect(404);
     expect(await counts(postId)).toBe(2);
@@ -233,18 +241,21 @@ describe('deleting a comment', () => {
     expect(await counts(postId)).toBe(3);
 
     await request(t.http)
-      .delete(`/comments/${withReplies}`)
+      .delete(`/api/v1/comments/${withReplies}`)
       .set(as(owner))
       .expect(403);
     await request(t.http)
-      .delete(`/comments/${withReplies}`)
+      .delete(`/api/v1/comments/${withReplies}`)
       .set(as(fan))
       .expect(200);
-    await request(t.http).delete(`/comments/${alone}`).set(as(fan)).expect(200);
+    await request(t.http)
+      .delete(`/api/v1/comments/${alone}`)
+      .set(as(fan))
+      .expect(200);
     expect(await counts(postId)).toBe(1);
 
     const list = await request(t.http)
-      .get(`/posts/${postId}/comments`)
+      .get(`/api/v1/posts/${postId}/comments`)
       .expect(200);
     expect(list.body.data).toEqual([
       expect.objectContaining({
@@ -257,7 +268,7 @@ describe('deleting a comment', () => {
       }),
     ]);
     const replies = await request(t.http)
-      .get(`/comments/${withReplies}/replies`)
+      .get(`/api/v1/comments/${withReplies}/replies`)
       .expect(200);
     expect(replies.body.data.map((r: { id: string }) => r.id)).toEqual([
       answer,
@@ -266,21 +277,23 @@ describe('deleting a comment', () => {
     // Deleted comments can't get new replies or edits.
     await reply(owner, withReplies, 'late').expect(404);
     await request(t.http)
-      .patch(`/comments/${withReplies}`)
+      .patch(`/api/v1/comments/${withReplies}`)
       .set(as(fan))
       .send({ body: 'x' })
       .expect(404);
 
     // Once its last reply goes, the marker goes too.
     await request(t.http)
-      .delete(`/replies/${answer}`)
+      .delete(`/api/v1/replies/${answer}`)
       .set(as(owner))
       .expect(200);
     const empty = await request(t.http)
-      .get(`/posts/${postId}/comments`)
+      .get(`/api/v1/posts/${postId}/comments`)
       .expect(200);
     expect(empty.body.data).toEqual([]);
-    await request(t.http).get(`/comments/${withReplies}/replies`).expect(404);
+    await request(t.http)
+      .get(`/api/v1/comments/${withReplies}/replies`)
+      .expect(404);
     expect(await counts(postId)).toBe(0);
   });
 });

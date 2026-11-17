@@ -42,7 +42,7 @@ function upload(
   fields: Record<string, string> = {},
 ) {
   const req = request(t.http)
-    .post('/media/uploads')
+    .post('/api/v1/media/uploads')
     .set(as(token))
     .field('mediaType', mediaType);
   for (const [key, value] of Object.entries(fields)) req.field(key, value);
@@ -115,7 +115,7 @@ describe('POST /media/uploads', () => {
     );
     // Plain text with an image name and content type.
     await request(t.http)
-      .post('/media/uploads')
+      .post('/api/v1/media/uploads')
       .set(as(owner.token))
       .field('mediaType', 'image')
       .attach('file', Buffer.from('hello'), {
@@ -129,7 +129,7 @@ describe('POST /media/uploads', () => {
   it('validates the request', async () => {
     const owner = await user();
     await request(t.http)
-      .post('/media/uploads')
+      .post('/api/v1/media/uploads')
       .set(as(owner.token))
       .field('mediaType', 'image')
       .expect(400);
@@ -140,7 +140,7 @@ describe('POST /media/uploads', () => {
       400,
     );
     await request(t.http)
-      .post('/media/uploads')
+      .post('/api/v1/media/uploads')
       .attach('file', pad(PNG_HEADER), 'photo.png')
       .expect(401);
   });
@@ -179,7 +179,7 @@ describe('GET /media/:mediaId and /status', () => {
       'a.png',
       'image',
     );
-    const url = `/media/${uploaded.body.data.id}`;
+    const url = `/api/v1/media/${uploaded.body.data.id}`;
 
     await request(t.http).get(url).set(as(owner.token)).expect(200);
     await request(t.http)
@@ -192,7 +192,7 @@ describe('GET /media/:mediaId and /status', () => {
     await request(t.http).get(url).set(as(stranger.token)).expect(404);
 
     await request(t.http)
-      .post('/posts')
+      .post('/api/v1/posts')
       .set(as(owner.token))
       .send({
         visibility: 'public',
@@ -204,7 +204,10 @@ describe('GET /media/:mediaId and /status', () => {
       .set(as(stranger.token))
       .expect(200);
     expect(seen.body.data.isMine).toBe(false);
-    await request(t.http).get('/media/nope').set(as(owner.token)).expect(400);
+    await request(t.http)
+      .get('/api/v1/media/nope')
+      .set(as(owner.token))
+      .expect(400);
   });
 });
 
@@ -220,7 +223,7 @@ describe('DELETE /media/:mediaId', () => {
     );
     const loose = await upload(owner.token, pad(PNG_HEADER), 'b.png', 'image');
     await request(t.http)
-      .post('/posts')
+      .post('/api/v1/posts')
       .set(as(owner.token))
       .send({
         visibility: 'public',
@@ -229,15 +232,15 @@ describe('DELETE /media/:mediaId', () => {
       .expect(201);
 
     await request(t.http)
-      .delete(`/media/${attached.body.data.id}`)
+      .delete(`/api/v1/media/${attached.body.data.id}`)
       .set(as(owner.token))
       .expect(409);
     await request(t.http)
-      .delete(`/media/${attached.body.data.id}`)
+      .delete(`/api/v1/media/${attached.body.data.id}`)
       .set(as(other.token))
       .expect(403);
     await request(t.http)
-      .delete(`/media/${loose.body.data.id}`)
+      .delete(`/api/v1/media/${loose.body.data.id}`)
       .set(as(other.token))
       .expect(404);
 
@@ -246,13 +249,13 @@ describe('DELETE /media/:mediaId', () => {
       '',
     );
     await request(t.http)
-      .delete(`/media/${loose.body.data.id}`)
+      .delete(`/api/v1/media/${loose.body.data.id}`)
       .set(as(owner.token))
       .expect(200)
       .expect(({ body }) => expect(body.data).toEqual({ deleted: true }));
     expect(t.storage.files.has(key)).toBe(false);
     await request(t.http)
-      .get(`/media/${loose.body.data.id}`)
+      .get(`/api/v1/media/${loose.body.data.id}`)
       .set(as(owner.token))
       .expect(404);
   });
@@ -276,7 +279,7 @@ describe('POST /media/:mediaId/complete', () => {
       createdAt: new Date(),
       updatedAt: new Date(),
     });
-    const url = `/media/${insertedId.toString()}/complete`;
+    const url = `/api/v1/media/${insertedId.toString()}/complete`;
 
     await request(t.http).post(url).set(as(owner.token)).expect(409);
     await request(t.http).post(url).set(as(other.token)).expect(404);

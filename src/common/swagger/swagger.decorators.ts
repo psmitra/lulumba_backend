@@ -105,7 +105,7 @@ function errorExample(status: HttpStatus): ApiErrorResponseDto {
       ...(status === HttpStatus.BAD_REQUEST
         ? { details: [{ field: 'page', message: 'page must be an integer' }] }
         : {}),
-      path: '/users/5001/follow',
+      path: '/api/v1/users/5001/follow',
       timestamp: '2026-11-01T21:47:00.009Z',
     },
   };

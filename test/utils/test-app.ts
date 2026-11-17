@@ -9,7 +9,7 @@ import { CLIENT_ID, CLIENT_SECRET, FakeGhanaWorks } from './fake-ghanaworks.js';
 import { MemoryStorageProvider } from './memory-storage.js';
 
 export const FRONTEND_URL = 'https://social.example.test';
-const REDIRECT_URI = 'https://api.social.example.test/auth/callback';
+const REDIRECT_URI = 'https://api.social.example.test/api/v1/auth/callback';
 const CSRF = { Origin: FRONTEND_URL, 'x-csrf-protection': '1' };
 
 export interface TestUser {
@@ -117,19 +117,19 @@ export async function startTestApp(database: string): Promise<TestApp> {
   };
 
   const signIn = async (user: GhanaWorksUser) => {
-    const login = await request(http).get('/auth/login').expect(302);
+    const login = await request(http).get('/api/v1/auth/login').expect(302);
     const location = new URL(login.headers.location as string);
     const code = ghanaWorks.issueCode(
       user,
       location.searchParams.get('code_challenge')!,
     );
     const callback = await request(http)
-      .get('/auth/callback')
+      .get('/api/v1/auth/callback')
       .query({ code, state: location.searchParams.get('state') })
       .set('Cookie', cookiePair(login, 'lulumba_oauth'))
       .expect(302);
     const refreshed = await request(http)
-      .post('/auth/refresh')
+      .post('/api/v1/auth/refresh')
       .set(CSRF)
       .set('Cookie', cookiePair(callback, 'lulumba_rt'))
       .expect(200);
@@ -165,7 +165,7 @@ export async function startTestApp(database: string): Promise<TestApp> {
       updatedAt: new Date(),
     });
     const res = await request(http)
-      .post('/posts')
+      .post('/api/v1/posts')
       .set('Authorization', `Bearer ${owner.token}`)
       .send({
         visibility,
