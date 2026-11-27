@@ -40,12 +40,12 @@ describe('loadStorageConfig', () => {
 
   it('fails for an unsupported driver', () => {
     expect(() =>
-      loadStorageConfig(reader({ ...ftpEnv, STORAGE_DRIVER: 's3' })),
-    ).toThrow('Unsupported STORAGE_DRIVER "s3"');
+      loadStorageConfig(reader({ ...ftpEnv, STORAGE_DRIVER: 'sftp' })),
+    ).toThrow('Unsupported STORAGE_DRIVER "sftp"');
   });
 
   it('rejects an unsupported driver at env validation already', () => {
-    expect(() => validateEnv({ STORAGE_DRIVER: 's3' })).toThrow(
+    expect(() => validateEnv({ STORAGE_DRIVER: 'sftp' })).toThrow(
       /STORAGE_DRIVER/,
     );
   });
@@ -127,6 +127,70 @@ describe('loadStorageConfig', () => {
       expect(() =>
         loadStorageConfig(reader({ STORAGE_DRIVER: 'local', ...override })),
       ).toThrow(message);
+    });
+  });
+
+  describe('s3', () => {
+    const s3Env: Record<string, string> = {
+      STORAGE_DRIVER: 's3',
+      AWS_ACCESS_KEY_ID: 'GKtest',
+      AWS_SECRET_ACCESS_KEY: 's3-secret',
+      AWS_BUCKET: 'lulumba-local',
+    };
+
+    it('selects S3 and applies defaults', () => {
+      expect(loadStorageConfig(reader(s3Env))).toEqual({
+        driver: 's3',
+        s3: {
+          accessKeyId: 'GKtest',
+          secretAccessKey: 's3-secret',
+          region: 'us-east-1',
+          bucket: 'lulumba-local',
+          endpoint: undefined,
+          forcePathStyle: false,
+          publicBaseUrl: undefined,
+        },
+      });
+    });
+
+    it('reads an S3-compatible server (Garage) and trims trailing slashes', () => {
+      const config = loadStorageConfig(
+        reader({
+          ...s3Env,
+          AWS_DEFAULT_REGION: 'garage',
+          AWS_ENDPOINT: 'https://s3.example.test/',
+          AWS_USE_PATH_STYLE_ENDPOINT: 'true',
+          AWS_URL: 'https://files.example.test/',
+        }),
+      );
+      expect(config).toMatchObject({
+        s3: {
+          region: 'garage',
+          endpoint: 'https://s3.example.test',
+          forcePathStyle: true,
+          publicBaseUrl: 'https://files.example.test',
+        },
+      });
+    });
+
+    it.each([
+      [{ AWS_ACCESS_KEY_ID: '' }, 'AWS_ACCESS_KEY_ID must be set'],
+      [{ AWS_SECRET_ACCESS_KEY: '' }, 'AWS_SECRET_ACCESS_KEY must be set'],
+      [{ AWS_BUCKET: 'Bad_Bucket' }, 'AWS_BUCKET'],
+      [{ AWS_ENDPOINT: 'not a url' }, 'AWS_ENDPOINT'],
+      [{ AWS_USE_PATH_STYLE_ENDPOINT: 'yes' }, 'AWS_USE_PATH_STYLE_ENDPOINT'],
+      [{ AWS_URL: 'ftp://files.example.test' }, 'AWS_URL'],
+    ])('rejects invalid S3 config %j', (override, message) => {
+      expect(() =>
+        loadStorageConfig(reader({ ...s3Env, ...override })),
+      ).toThrow(message);
+    });
+
+    it('never puts the secret key in the error', () => {
+      const load = () =>
+        loadStorageConfig(reader({ ...s3Env, AWS_BUCKET: '' }));
+      expect(load).toThrow('Invalid S3 storage configuration');
+      expect(load).not.toThrow('s3-secret');
     });
   });
 

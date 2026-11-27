@@ -31,6 +31,15 @@ export class FakeGhanaWorks {
   private readonly codes = new Map<string, PendingCode>();
   private readonly refreshTokens = new Map<string, GhanaWorksUser>();
   private readonly accessTokens = new Map<string, GhanaWorksUser>();
+  /** Changes made in GhanaWorks after sign-in, by user id. */
+  private readonly userChanges = new Map<number, Partial<GhanaWorksUser>>();
+  /** Users whose tokens /auth/me rejects with 401 (e.g. deactivated). */
+  private readonly rejectedUsers = new Set<number>();
+  /** One-shot failures, per path: the next request gets this answer. */
+  private readonly failures = new Map<
+    string,
+    { status: number; body: unknown }
+  >();
 
   constructor() {
     this.privateKey = generateKeyPairSync('rsa', {
@@ -60,6 +69,21 @@ export class FakeGhanaWorks {
       redirectUri: this.redirectUri,
     });
     return code;
+  }
+
+  /** The user is edited in GhanaWorks; /auth/me shows it from now on. */
+  changeUser(id: number, changes: Partial<GhanaWorksUser>): void {
+    this.userChanges.set(id, { ...this.userChanges.get(id), ...changes });
+  }
+
+  /** GhanaWorks' /auth/me answers 401 for this user's tokens. */
+  rejectUser(id: number): void {
+    this.rejectedUsers.add(id);
+  }
+
+  /** The next request to `path` fails with `status` (e.g. 429, 503). */
+  failNext(path: string, status: number, body: unknown = {}): void {
+    this.failures.set(path, { status, body });
   }
 
   /** Signs a token with GhanaWorks' key (or another `key`). */
@@ -93,6 +117,11 @@ export class FakeGhanaWorks {
     const url = new URL(req.url ?? '/', this.baseUrl);
     const bearer = /^Bearer (.+)$/.exec(req.headers.authorization ?? '')?.[1];
 
+    const failure = this.failures.get(url.pathname);
+    if (failure) {
+      this.failures.delete(url.pathname);
+      return json(res, failure.status, failure.body);
+    }
     if (url.pathname === '/.well-known/jwks.json') {
       const publicJwk = await exportJWK(this.privateKey);
       const { n, e, kty } = publicJwk;
@@ -105,7 +134,10 @@ export class FakeGhanaWorks {
     }
     if (url.pathname === '/api/v1/auth/me') {
       const user = bearer ? this.accessTokens.get(bearer) : undefined;
-      return user ? json(res, 200, user) : json(res, 401, {});
+      if (!user || this.rejectedUsers.has(user.id)) {
+        return json(res, 401, {});
+      }
+      return json(res, 200, { ...user, ...this.userChanges.get(user.id) });
     }
     if (url.pathname === '/api/v1/auth/logout' && req.method === 'POST') {
       const user = bearer ? this.accessTokens.get(bearer) : undefined;

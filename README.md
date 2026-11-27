@@ -59,20 +59,40 @@ $ npm run test:cov
 
 ## Authentication (GhanaWorks SSO)
 
-Users sign in with their GhanaWorks account (OAuth 2.0 Authorization Code + PKCE, per GhanaWorks' *SSO Integration* guide). This API is the confidential client; React never sees the client secret or the refresh token.
+Users sign in with their GhanaWorks account (OAuth 2.0 Authorization Code + PKCE, per GhanaWorks' *SSO Integration* guide and *Social app SSO hand-off*). This API is the confidential client; React never sees the client secret or the refresh token. Only active normal user accounts (`account_type = user`, `status = active`) can sign in.
 
 All routes live under `/api/v1` (e.g. `GET /api/v1/posts`), except `GET /health`. Add a new version per controller or handler with `@Version('2')`.
 
 | Endpoint | Used by | What it does |
 |---|---|---|
-| `GET /api/v1/auth/login` | Browser link | Redirects to GhanaWorks `/oauth/authorize` |
-| `GET /api/v1/auth/callback` | GhanaWorks redirect | Exchanges the code, syncs the profile from GhanaWorks' `/api/v1/auth/me`, sets the HttpOnly refresh cookie, redirects to `FRONTEND_URL` (`?auth_error=...` on failure) |
-| `POST /api/v1/auth/refresh` | React | Returns `{ accessToken, expiresIn }` and rotates the cookie. Send `credentials: 'include'` and header `X-CSRF-Protection: 1`. |
+| `GET /api/v1/auth/login` | Browser link | Redirects to GhanaWorks `/oauth/authorize`. `?prompt=none` signs in silently (no GhanaWorks screen) |
+| `GET /api/v1/auth/callback` | GhanaWorks redirect | Exchanges the code, syncs the profile from GhanaWorks' `/api/v1/auth/me`, sets the HttpOnly refresh cookie, redirects to `FRONTEND_URL` (`?auth_error=...` on failure, see below) |
+| `POST /api/v1/auth/refresh` | React | Returns `{ accessToken, expiresIn }` and rotates the cookie. Also checks the user with GhanaWorks `/api/v1/auth/me` and refreshes name and photo. Send `credentials: 'include'` and header `X-CSRF-Protection: 1`. |
 | `GET /api/v1/auth/me` | React | Current profile |
 | `POST /api/v1/auth/logout` | React | Logs out here, in GhanaWorks and in every portal |
 | `POST /api/v1/auth/backchannel-logout` | GhanaWorks | Register this URL as the client's `--logout-url` |
 
 React keeps the access token in memory and sends `Authorization: Bearer <token>`. Every route needs it unless marked `@Public()`. Tokens are verified with GhanaWorks' JWKS (`aud` must equal `GHANAWORKS_CLIENT_ID`), and tokens issued before the user's last logout are rejected.
+
+**On app load React calls `POST /api/v1/auth/refresh`** (this is the hand-off's "gate the app on `/auth/me`"):
+
+- `200`: signed in, render the app.
+- `401`: signed out, disabled or not allowed. The cookie is cleared; show the sign-in.
+- `503`: GhanaWorks is busy or down. The session is kept; retry shortly.
+
+`auth_error` values on the frontend URL after a failed login:
+
+| Code | Meaning |
+|---|---|
+| `login_required` | `prompt=none` and the user isn't signed in to GhanaWorks |
+| `access_denied` | The user declined, or GhanaWorks refused |
+| `account_not_allowed` | Not an active normal user account, or the social profile is disabled |
+| `invalid_client` | Configuration: wrong client id/secret or redirect URL |
+| `rate_limited` | GhanaWorks rate limit (429); try again shortly |
+| `ghanaworks_unavailable` | GhanaWorks is down or unreachable |
+| `login_failed` | Anything else (bad state, expired or reused code) |
+
+Login requests the scopes `profile users.read favorites.read favorites.write` (override with `GHANAWORKS_SCOPES`).
 
 Testing the API without a frontend: set `DEV_SHOW_TOKENS=true` in `.env` and open `/api/v1/auth/login` in a browser that is signed in to GhanaWorks. Instead of redirecting to `FRONTEND_URL`, the callback shows your access token, refresh token, decoded claims and profile as JSON. Use the access token in Swagger (`/docs` → Authorize), Postman or curl; it lasts 15 minutes, then open `/api/v1/auth/login` again. The app refuses to start with it when `APP_ENV=production`.
 

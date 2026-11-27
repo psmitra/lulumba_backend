@@ -4,8 +4,9 @@ One `StorageService` for every file Lulumba stores: avatars, post media,
 stories, message attachments and thumbnails. The backend is picked by
 `STORAGE_DRIVER`. Business code never knows which one it is.
 
-Implemented drivers: `ftp` (FTP/FTPS server) and `local` (a directory on
-this machine, for development or a single server).
+Implemented drivers: `ftp` (FTP/FTPS server), `local` (a directory on
+this machine, for development or a single server) and `s3` (Amazon S3 or an
+S3-compatible server such as Garage or MinIO).
 
 ## 1. Architecture
 
@@ -16,8 +17,10 @@ business module ──> StorageService ──> STORAGE_PROVIDER (StorageProvider
                     (file checks,                  │
                      key generation,               ├─ FtpStorageProvider    (driver = ftp)
                      error handling)               │   └─ basic-ftp
-                                                   └─ LocalStorageProvider  (driver = local)
-                                                       └─ node:fs
+                                                   ├─ LocalStorageProvider  (driver = local)
+                                                   │   └─ node:fs
+                                                   └─ S3StorageProvider     (driver = s3)
+                                                       └─ @aws-sdk/client-s3
 ```
 
 | File | Role |
@@ -29,6 +32,7 @@ business module ──> StorageService ──> STORAGE_PROVIDER (StorageProvider
 | `common/storage/interfaces/storage-provider.interface.ts` | The contract every backend implements |
 | `common/storage/providers/ftp/` | FTP implementation |
 | `common/storage/providers/local/` | Local disk implementation |
+| `common/storage/providers/s3/` | S3 / S3-compatible implementation |
 | `common/storage/storage.url.ts` | Public URL from base URL + key, shared by providers |
 | `common/storage/storage.types.ts` | `StorageResult`, folders, which file kinds each folder accepts |
 | `common/storage/storage.errors.ts` | `StorageError`, `InvalidStorageKeyError`, key validation |
@@ -96,6 +100,29 @@ LOCAL_STORAGE_PUBLIC_BASE_URL=http://localhost/lulumba-uploads/lulumba
 - **Atomic uploads**, like FTP: written as `.<name>.<uuid>.part`, then renamed into place.
 - **Public URLs** work the same as FTP's: set `LOCAL_STORAGE_PUBLIC_BASE_URL` to whatever web server serves the directory (Apache under WAMP above), or leave it empty for `null` URLs.
 - **One machine only.** Every API instance must see the same directory, so with more than one server, use FTP (or a shared volume).
+
+## 3b. S3 configuration (Amazon S3, Garage, MinIO)
+
+The variable names match Laravel's `s3` disk, so one `.env` block works for
+both apps.
+
+```env
+STORAGE_DRIVER=s3
+AWS_ACCESS_KEY_ID=GK...
+AWS_SECRET_ACCESS_KEY=********
+AWS_DEFAULT_REGION=garage                  # Amazon S3: e.g. eu-west-1
+AWS_BUCKET=lulumba
+AWS_ENDPOINT=https://s3.example.com        # empty for Amazon S3
+AWS_USE_PATH_STYLE_ENDPOINT=true           # true for Garage / MinIO
+AWS_URL=https://files.example.com          # serves <AWS_URL>/<key>; empty = no public URLs
+```
+
+- **Permissions.** The key needs read and write on the bucket. In Garage: `garage bucket allow --read --write <bucket> --key <key-id>`. Without it every call fails with `403 AccessDenied: Operation is not allowed for this key`.
+- **Atomic uploads** come free: an S3 PUT replaces the object all at once, so no temporary key is used.
+- **Cache-Control.** Objects are stored with `public, max-age=31536000, immutable`, since keys are random UUIDs that are never rewritten.
+- **Checksums** are only sent when the operation requires them. Some S3-compatible servers reject the SDK's newer default checksum headers.
+- **Public URLs** are `<AWS_URL>/<key>`. Point `AWS_URL` at whatever serves the bucket's keys at its root: Garage's web endpoint for that bucket, a CDN, or a reverse proxy. Objects aren't public through the S3 API itself.
+- **Many servers.** Every API instance sees the same bucket, so unlike `local` this works with any number of servers.
 
 ## 4. Public URLs
 
@@ -184,7 +211,7 @@ Business code doesn't change, because it only uses `StorageService` and stored
 keys. Existing files are not moved automatically; copy them to the new
 backend under the same keys.
 
-## 7. Adding a provider (e.g. SFTP or S3)
+## 7. Adding a provider (e.g. SFTP)
 
 1. Add the value to `StorageDriver` in `src/common/enums/storage-driver.enum.ts`.
 2. In `common/config/storage.config.ts`, add its settings (validated like `FtpEnvironment`), a member of the `StorageConfig` union and a `case` in `loadStorageConfig()`.
@@ -231,7 +258,7 @@ unencrypted.
 ## 10. Tests
 
 ```bash
-npm test -- storage                    # unit tests: FTP client mocked, local provider on a temp dir
+npm test -- storage                    # unit tests: FTP and S3 clients mocked, local provider on a temp dir
 ```
 
 On Windows, run tests from a terminal whose path starts with an uppercase

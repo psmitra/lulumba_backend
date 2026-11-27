@@ -21,6 +21,10 @@ import { StorageDriver } from '../enums/storage-driver.enum.js';
 
 const URL_OPTIONS = { require_tld: false, require_protocol: true };
 
+// The user-login scopes granted in GhanaWorks' Social app hand-off.
+const DEFAULT_GHANAWORKS_SCOPES =
+  'profile users.read favorites.read favorites.write';
+
 export class EnvironmentVariables {
   @IsString()
   @IsNotEmpty()
@@ -122,6 +126,18 @@ export class EnvironmentVariables {
   // This API's /auth/callback, exactly as registered with GhanaWorks.
   @IsUrl(URL_OPTIONS)
   GHANAWORKS_REDIRECT_URI: string;
+
+  // Space-separated scopes requested at login. `profile` is required for
+  // /api/v1/auth/me; the rest are what GhanaWorks granted this client.
+  @Transform(({ value }) =>
+    typeof value === 'string' && value.trim() !== ''
+      ? value.trim().split(/\s+/).join(' ')
+      : DEFAULT_GHANAWORKS_SCOPES,
+  )
+  @Matches(/(^|\s)profile(\s|$)/, {
+    message: 'GHANAWORKS_SCOPES must include profile',
+  })
+  GHANAWORKS_SCOPES: string = DEFAULT_GHANAWORKS_SCOPES;
 
   // The React app. Users land here after login; it is also the only origin
   // allowed by CORS.

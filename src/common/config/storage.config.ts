@@ -22,7 +22,21 @@ import { StorageDriver } from '../enums/storage-driver.enum.js';
  */
 export type StorageConfig =
   | { driver: StorageDriver.Ftp; ftp: FtpStorageConfig }
-  | { driver: StorageDriver.Local; local: LocalStorageConfig };
+  | { driver: StorageDriver.Local; local: LocalStorageConfig }
+  | { driver: StorageDriver.S3; s3: S3StorageConfig };
+
+export interface S3StorageConfig {
+  accessKeyId: string;
+  secretAccessKey: string;
+  region: string;
+  bucket: string;
+  /** S3-compatible server URL; absent for Amazon S3 itself. */
+  endpoint?: string;
+  /** `<endpoint>/<bucket>/<key>` instead of `<bucket>.<endpoint>/<key>`. */
+  forcePathStyle: boolean;
+  /** Public URL that serves the bucket's keys; no public URLs when absent. */
+  publicBaseUrl?: string;
+}
 
 export interface LocalStorageConfig {
   /** Absolute directory all keys live under, normalized for this OS. */
@@ -57,6 +71,8 @@ export function loadStorageConfig(read: EnvReader): StorageConfig {
       return { driver, ftp: loadFtpConfig(read) };
     case StorageDriver.Local:
       return { driver, local: loadLocalConfig(read) };
+    case StorageDriver.S3:
+      return { driver, s3: loadS3Config(read) };
     default:
       throw new Error(`Unsupported STORAGE_DRIVER "${String(driver)}"`);
   }
@@ -93,9 +109,14 @@ function readEnv<T extends object>(
 ): T {
   const raw = Object.fromEntries(keys.map((key) => [key, read(key)]));
   const env = plainToInstance(cls, raw);
-  const messages = validateSync(env).flatMap((error) =>
-    Object.values(error.constraints ?? {}),
-  );
+  // A Set: one variable can fail several checks with the same message.
+  const messages = [
+    ...new Set(
+      validateSync(env).flatMap((error) =>
+        Object.values(error.constraints ?? {}),
+      ),
+    ),
+  ];
   if (messages.length === 0) {
     messages.push(...extraErrors(env));
   }
@@ -201,6 +222,71 @@ const LOCAL_KEYS: readonly (keyof LocalEnvironment)[] = [
   'LOCAL_STORAGE_PATH',
   'LOCAL_STORAGE_PUBLIC_BASE_URL',
 ];
+
+// ---- S3 / S3-compatible ------------------------------------------------
+
+// Laravel-style names, so the same .env block works for both apps.
+class S3Environment {
+  @IsString({ message: 'AWS_ACCESS_KEY_ID must be set' })
+  @IsNotEmpty({ message: 'AWS_ACCESS_KEY_ID must be set' })
+  AWS_ACCESS_KEY_ID: string;
+
+  @IsString({ message: 'AWS_SECRET_ACCESS_KEY must be set' })
+  @IsNotEmpty({ message: 'AWS_SECRET_ACCESS_KEY must be set' })
+  AWS_SECRET_ACCESS_KEY: string;
+
+  // Garage uses `garage`; Amazon S3 a real region such as eu-west-1.
+  @orDefault('us-east-1')
+  @Matches(/^[A-Za-z0-9-]+$/, {
+    message: 'AWS_DEFAULT_REGION must be a region name such as eu-west-1',
+  })
+  AWS_DEFAULT_REGION: string = 'us-east-1';
+
+  @IsString({ message: 'AWS_BUCKET must be set' })
+  @Matches(/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/, {
+    message: 'AWS_BUCKET must be a valid bucket name',
+  })
+  AWS_BUCKET: string;
+
+  @emptyAsUndefined()
+  @IsOptional()
+  @IsPublicBaseUrl()
+  AWS_ENDPOINT?: string;
+
+  @orDefault('false')
+  @IsIn(['true', 'false'], {
+    message: 'AWS_USE_PATH_STYLE_ENDPOINT must be true or false',
+  })
+  AWS_USE_PATH_STYLE_ENDPOINT: 'true' | 'false' = 'false';
+
+  @emptyAsUndefined()
+  @IsOptional()
+  @IsPublicBaseUrl()
+  AWS_URL?: string;
+}
+
+const S3_KEYS: readonly (keyof S3Environment)[] = [
+  'AWS_ACCESS_KEY_ID',
+  'AWS_SECRET_ACCESS_KEY',
+  'AWS_DEFAULT_REGION',
+  'AWS_BUCKET',
+  'AWS_ENDPOINT',
+  'AWS_USE_PATH_STYLE_ENDPOINT',
+  'AWS_URL',
+];
+
+function loadS3Config(read: EnvReader): S3StorageConfig {
+  const env = readEnv(S3Environment, S3_KEYS, read, 'S3 storage');
+  return {
+    accessKeyId: env.AWS_ACCESS_KEY_ID,
+    secretAccessKey: env.AWS_SECRET_ACCESS_KEY,
+    region: env.AWS_DEFAULT_REGION,
+    bucket: env.AWS_BUCKET,
+    endpoint: env.AWS_ENDPOINT?.replace(/\/+$/, ''),
+    forcePathStyle: env.AWS_USE_PATH_STYLE_ENDPOINT === 'true',
+    publicBaseUrl: env.AWS_URL?.replace(/\/+$/, ''),
+  };
+}
 
 function loadLocalConfig(read: EnvReader): LocalStorageConfig {
   const env = readEnv(

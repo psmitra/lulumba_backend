@@ -160,9 +160,10 @@ describe('sign in with GhanaWorks', () => {
       client_id: CLIENT_ID,
       redirect_uri: REDIRECT_URI,
       response_type: 'code',
-      scope: 'profile',
+      scope: 'profile users.read favorites.read favorites.write',
       code_challenge_method: 'S256',
     });
+    expect(location.searchParams.has('prompt')).toBe(false);
     expect(oauthCookie).toMatch(/HttpOnly/);
     expect(oauthCookie).toMatch(/SameSite=Lax/);
     expect(oauthCookie).toMatch(/Path=\/api\/v1\/auth\/callback/);
@@ -249,6 +250,103 @@ describe('sign in with GhanaWorks', () => {
     expect(res.headers.location).toBe(
       `${FRONTEND_URL}/?auth_error=access_denied`,
     );
+
+    const odd = await request(http)
+      .get('/api/v1/auth/callback')
+      .query({ error: '<script>', state: 'x' })
+      .expect(302);
+    expect(odd.headers.location).toBe(
+      `${FRONTEND_URL}/?auth_error=login_failed`,
+    );
+  });
+
+  it('silent sign-in (prompt=none) reports login_required when signed out', async () => {
+    const res = await request(http)
+      .get('/api/v1/auth/login')
+      .query({ prompt: 'none' })
+      .expect(302);
+    const location = new URL(res.headers.location as string);
+    expect(location.searchParams.get('prompt')).toBe('none');
+
+    const callback = await request(http)
+      .get('/api/v1/auth/callback')
+      .query({
+        error: 'access_denied',
+        state: location.searchParams.get('state'),
+      })
+      .set('Cookie', pair(cookieFrom(res, 'lulumba_oauth')!))
+      .expect(302);
+    expect(callback.headers.location).toBe(
+      `${FRONTEND_URL}/?auth_error=login_required`,
+    );
+
+    await request(http)
+      .get('/api/v1/auth/login')
+      .query({ prompt: 'login' })
+      .expect(400);
+  });
+
+  it('silent sign-in completes like a normal one when signed in', async () => {
+    const user = ghanaWorksUser();
+    const res = await request(http)
+      .get('/api/v1/auth/login')
+      .query({ prompt: 'none' })
+      .expect(302);
+    const location = new URL(res.headers.location as string);
+    const code = ghanaWorks.issueCode(
+      user,
+      location.searchParams.get('code_challenge')!,
+    );
+
+    const callback = await request(http)
+      .get('/api/v1/auth/callback')
+      .query({ code, state: location.searchParams.get('state') })
+      .set('Cookie', pair(cookieFrom(res, 'lulumba_oauth')!))
+      .expect(302);
+    expect(callback.headers.location).toBe(`${FRONTEND_URL}/`);
+    expect(cookieFrom(callback, 'lulumba_rt')).toBeDefined();
+  });
+
+  it('only lets active normal user accounts sign in', async () => {
+    for (const user of [
+      ghanaWorksUser({ account_type: 'company' }),
+      ghanaWorksUser({ status: 'inactive' }),
+    ]) {
+      const { code, state, oauthCookie } = await startLogin(user);
+      const callback = await request(http)
+        .get('/api/v1/auth/callback')
+        .query({ code, state })
+        .set('Cookie', pair(oauthCookie))
+        .expect(302);
+      expect(callback.headers.location).toBe(
+        `${FRONTEND_URL}/?auth_error=account_not_allowed`,
+      );
+      expect(cookieFrom(callback, 'lulumba_rt')).toBeUndefined();
+    }
+  });
+
+  it('tells the frontend why the code exchange failed', async () => {
+    const callbackWith = async (status: number, body: unknown = {}) => {
+      const { code, state, oauthCookie } = await startLogin(ghanaWorksUser());
+      ghanaWorks.failNext('/oauth/token', status, body);
+      const res = await request(http)
+        .get('/api/v1/auth/callback')
+        .query({ code, state })
+        .set('Cookie', pair(oauthCookie))
+        .expect(302);
+      return new URL(res.headers.location as string).searchParams.get(
+        'auth_error',
+      );
+    };
+
+    expect(await callbackWith(401, { error: 'invalid_client' })).toBe(
+      'invalid_client',
+    );
+    expect(await callbackWith(429)).toBe('rate_limited');
+    expect(await callbackWith(503)).toBe('ghanaworks_unavailable');
+    expect(await callbackWith(400, { error: 'invalid_grant' })).toBe(
+      'login_failed',
+    );
   });
 });
 
@@ -315,6 +413,63 @@ describe('refresh', () => {
       .set('Cookie', cookie)
       .set('Origin', FRONTEND_URL)
       .expect(403);
+  });
+
+  it('keeps the session when GhanaWorks is busy or down (429, 5xx)', async () => {
+    const { cookie } = await signIn(ghanaWorksUser());
+
+    for (const status of [429, 503]) {
+      ghanaWorks.failNext('/oauth/token', status);
+      const res = await refresh(cookie).expect(503);
+      expect(cookieFrom(res, 'lulumba_rt')).toBeUndefined(); // not cleared
+    }
+    // The same refresh token still works afterwards.
+    await refresh(cookie).expect(200);
+  });
+
+  it('checks the user with GhanaWorks /auth/me and syncs the profile', async () => {
+    const user = ghanaWorksUser({ name: 'Old Name' });
+    const { cookie } = await signIn(user);
+
+    ghanaWorks.changeUser(user.id, {
+      name: 'Renamed In GhanaWorks',
+      image_url: 'https://ghanaworks.test/pic/new.jpg',
+    });
+    const res = await refresh(cookie).expect(200);
+    const profile = await me(res.body.data.accessToken).expect(200);
+    expect(profile.body.data).toMatchObject({
+      displayName: 'Renamed In GhanaWorks',
+      avatarUrl: 'https://ghanaworks.test/pic/new.jpg',
+    });
+  });
+
+  it('ends the session when GhanaWorks /auth/me rejects the user', async () => {
+    const user = ghanaWorksUser();
+    const { accessToken, cookie } = await signIn(user);
+    ghanaWorks.rejectUser(user.id);
+
+    const res = await refresh(cookie).expect(401);
+    expect(cookieFrom(res, 'lulumba_rt')).toMatch(/Expires=Thu, 01 Jan 1970/);
+    // Access tokens issued before stop working too.
+    await me(accessToken).expect(401);
+  });
+
+  it('ends the session when the account is no longer an active user', async () => {
+    const user = ghanaWorksUser();
+    const { accessToken, cookie } = await signIn(user);
+    ghanaWorks.changeUser(user.id, { status: 'suspended' });
+
+    const res = await refresh(cookie).expect(401);
+    expect(cookieFrom(res, 'lulumba_rt')).toMatch(/Expires=Thu, 01 Jan 1970/);
+    await me(accessToken).expect(401);
+  });
+
+  it('keeps the new tokens when only /auth/me is briefly unavailable', async () => {
+    const { cookie } = await signIn(ghanaWorksUser());
+    ghanaWorks.failNext('/api/v1/auth/me', 503);
+
+    const res = await refresh(cookie).expect(200);
+    await me(res.body.data.accessToken).expect(200);
   });
 
   it('allows CORS only from the frontend', async () => {

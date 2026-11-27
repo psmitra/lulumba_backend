@@ -34,10 +34,27 @@ export class GhanaWorksError extends Error {
   constructor(
     readonly status: number,
     readonly endpoint: string,
+    /** OAuth `error` from the JSON body, e.g. `invalid_grant`. */
+    readonly code?: string,
   ) {
-    super(`GhanaWorks ${endpoint} responded ${status}`);
+    super(
+      `GhanaWorks ${endpoint} responded ${status}${code ? ` (${code})` : ''}`,
+    );
     this.name = 'GhanaWorksError';
   }
+
+  /**
+   * 400/401: the code or refresh token was rejected, or the user logged out
+   * or was disabled. Anything else (429, 5xx) is worth retrying.
+   */
+  get isRejection(): boolean {
+    return this.status === 400 || this.status === 401;
+  }
+}
+
+export interface AuthorizeOptions {
+  /** `none`: no sign-in screen; `access_denied` if not signed in. */
+  prompt?: 'none';
 }
 
 const BACKCHANNEL_LOGOUT_EVENT =
@@ -56,6 +73,7 @@ export class GhanaWorksClient {
   private readonly clientId: string;
   private readonly clientSecret: string;
   private readonly redirectUri: string;
+  private readonly scopes: string;
   private readonly jwks: ReturnType<typeof createRemoteJWKSet>;
 
   constructor(config: ConfigService<EnvironmentVariables, true>) {
@@ -65,6 +83,7 @@ export class GhanaWorksClient {
     this.clientId = config.get('GHANAWORKS_CLIENT_ID', { infer: true });
     this.clientSecret = config.get('GHANAWORKS_CLIENT_SECRET', { infer: true });
     this.redirectUri = config.get('GHANAWORKS_REDIRECT_URI', { infer: true });
+    this.scopes = config.get('GHANAWORKS_SCOPES', { infer: true });
     // The guide allows caching the key for an hour.
     this.jwks = createRemoteJWKSet(
       new URL(`${this.baseUrl}/.well-known/jwks.json`),
@@ -73,16 +92,23 @@ export class GhanaWorksClient {
   }
 
   /** §3.1 - where to send the browser to sign in. */
-  authorizeUrl(state: string, codeChallenge: string): string {
+  authorizeUrl(
+    state: string,
+    codeChallenge: string,
+    options: AuthorizeOptions = {},
+  ): string {
     const params = new URLSearchParams({
       client_id: this.clientId,
       redirect_uri: this.redirectUri,
       response_type: 'code',
-      scope: 'profile',
+      scope: this.scopes,
       state,
       code_challenge: codeChallenge,
       code_challenge_method: 'S256',
     });
+    if (options.prompt) {
+      params.set('prompt', options.prompt);
+    }
     return `${this.baseUrl}/oauth/authorize?${params.toString()}`;
   }
 
@@ -168,14 +194,34 @@ export class GhanaWorksClient {
     path: string,
     init: Omit<RequestInit, 'headers'> & { headers: Record<string, string> },
   ): Promise<Response> {
-    const response = await fetch(`${this.baseUrl}${path}`, {
-      ...init,
-      headers: { Accept: 'application/json', ...init.headers },
-      signal: AbortSignal.timeout(TIMEOUT_MS),
-    });
+    let response: Response;
+    try {
+      response = await fetch(`${this.baseUrl}${path}`, {
+        ...init,
+        headers: { Accept: 'application/json', ...init.headers },
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+      });
+    } catch {
+      // Unreachable or timed out (status 0: never a rejection).
+      throw new GhanaWorksError(0, path, 'unreachable');
+    }
     if (!response.ok) {
-      throw new GhanaWorksError(response.status, path);
+      throw new GhanaWorksError(
+        response.status,
+        path,
+        await errorCode(response),
+      );
     }
     return response;
+  }
+}
+
+/** The `error` field of a GhanaWorks JSON error body, if any. */
+async function errorCode(response: Response): Promise<string | undefined> {
+  try {
+    const body = (await response.json()) as { error?: unknown };
+    return typeof body?.error === 'string' ? body.error : undefined;
+  } catch {
+    return undefined;
   }
 }

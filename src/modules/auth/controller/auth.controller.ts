@@ -12,6 +12,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  ForbiddenException,
   Get,
   HttpCode,
   HttpStatus,
@@ -31,6 +32,7 @@ import {
   ApiNoContentResponse,
   ApiOkResponse,
   ApiOperation,
+  ApiQuery,
   ApiSecurity,
   ApiTags,
 } from '@nestjs/swagger';
@@ -44,6 +46,7 @@ import {
 import { CurrentAuth } from '../decorators/current-auth.decorator.js';
 import { Public } from '../decorators/public.decorator.js';
 import { AccessTokenResponseDto } from '../dto/access-token-response.dto.js';
+import { GhanaWorksError } from '../ghanaworks/ghanaworks.client.js';
 import type { TokenSet } from '../ghanaworks/ghanaworks.client.js';
 import { CsrfGuard } from '../guards/csrf.guard.js';
 import type { AuthContext } from '../interfaces/auth-context.interface.js';
@@ -75,9 +78,26 @@ export class AuthController {
     description:
       'Open in the browser (not via "Try it out"): redirects to GhanaWorks.',
   })
+  @ApiQuery({
+    name: 'prompt',
+    required: false,
+    enum: ['none'],
+    description:
+      'Silent sign-in: no GhanaWorks screen. If the user is not signed in to ' +
+      'GhanaWorks, they come back with `?auth_error=login_required`.',
+  })
   @ApiFoundResponse({ description: 'Redirect to the GhanaWorks login page' })
-  login(@Res() res: Response): void {
-    const { authorizeUrl, oauthCookie } = this.auth.startLogin();
+  @ApiErrorResponses(HttpStatus.BAD_REQUEST)
+  login(
+    @Query('prompt') prompt: string | undefined,
+    @Res() res: Response,
+  ): void {
+    if (prompt !== undefined && prompt !== 'none') {
+      throw new BadRequestException('prompt must be "none" or omitted');
+    }
+    const { authorizeUrl, oauthCookie } = this.auth.startLogin(
+      prompt === 'none' ? { prompt } : {},
+    );
     res.cookie(OAUTH_COOKIE.name, oauthCookie, this.cookie(OAUTH_COOKIE));
     res.redirect(authorizeUrl);
   }
@@ -87,6 +107,7 @@ export class AuthController {
    * stored in an HttpOnly cookie and the browser goes to the React app,
    * which then calls POST /auth/refresh for its access token.
    * With DEV_SHOW_TOKENS=true it shows the tokens as JSON instead.
+   * Failures go to FRONTEND_URL?auth_error=<code>, see loginErrorCode().
    */
   @Public()
   @Get('callback')
@@ -101,14 +122,23 @@ export class AuthController {
     const oauthCookie = readCookie(req, OAUTH_COOKIE.name);
     res.clearCookie(OAUTH_COOKIE.name, this.cookie(OAUTH_COOKIE, false));
 
-    if (error || !code || !state) {
-      return this.backToFrontend(res, error ?? 'invalid_request');
+    if (error) {
+      const silent = this.auth.isSilentLogin(oauthCookie);
+      return this.backToFrontend(
+        res,
+        silent && error === 'access_denied'
+          ? 'login_required'
+          : sanitizeErrorCode(error),
+      );
+    }
+    if (!code || !state) {
+      return this.backToFrontend(res, 'invalid_request');
     }
     let login: LoginResult;
     try {
       login = await this.auth.completeLogin(code, state, oauthCookie);
-    } catch {
-      return this.backToFrontend(res, 'login_failed');
+    } catch (failure) {
+      return this.backToFrontend(res, loginErrorCode(failure));
     }
     this.setRefreshCookie(res, login.tokens);
     if (this.devShowTokens) {
@@ -126,12 +156,19 @@ export class AuthController {
     summary: 'Get or renew the access token',
     description:
       `Authenticated by the \`${REFRESH_COOKIE.name}\` cookie. Must come from ` +
-      `FRONTEND_URL with \`${CSRF_HEADER}: 1\`, so it can't be tried from here.`,
+      `FRONTEND_URL with \`${CSRF_HEADER}: 1\`, so it can't be tried from here. ` +
+      'Call it on every app load: it also checks the user with GhanaWorks ' +
+      '`/api/v1/auth/me`. `401`: signed out, show the sign-in. `503`: ' +
+      'GhanaWorks is unavailable; the session is kept, retry later.',
   })
   // Cookie AND header: one requirement object holding both schemes.
   @ApiSecurity({ [SWAGGER_AUTH.refreshCookie]: [], [SWAGGER_AUTH.csrf]: [] })
   @ApiSuccessResponse(AccessTokenResponseDto)
-  @ApiErrorResponses(HttpStatus.UNAUTHORIZED, HttpStatus.FORBIDDEN)
+  @ApiErrorResponses(
+    HttpStatus.UNAUTHORIZED,
+    HttpStatus.FORBIDDEN,
+    HttpStatus.SERVICE_UNAVAILABLE,
+  )
   async refresh(
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
@@ -147,8 +184,15 @@ export class AuthController {
         accessToken: tokens.access_token,
         expiresIn: tokens.expires_in,
       });
-    } catch {
-      // Logged out or disabled in GhanaWorks (§3.3): end the session.
+    } catch (error) {
+      // GhanaWorks unavailable (429, 5xx, down): keep the cookie for a retry.
+      if (
+        !(error instanceof UnauthorizedException) &&
+        !(error instanceof ForbiddenException)
+      ) {
+        throw error;
+      }
+      // Logged out, disabled or not allowed (§3.3): end the session.
       res.clearCookie(REFRESH_COOKIE.name, this.cookie(REFRESH_COOKIE, false));
       throw new UnauthorizedException('Session ended, please sign in again');
     }
@@ -266,6 +310,39 @@ export class AuthController {
       ...(withMaxAge ? { maxAge: spec.maxAgeMs } : {}),
     };
   }
+}
+
+/**
+ * `auth_error` codes for a failed callback:
+ * - `account_not_allowed`: not an active normal GhanaWorks user, or the
+ *   social profile is disabled
+ * - `invalid_client`: wrong client id/secret or redirect URL (configuration)
+ * - `rate_limited`: GhanaWorks answered 429, try again shortly
+ * - `ghanaworks_unavailable`: GhanaWorks down or unreachable
+ * - `login_failed`: anything else (bad state, expired or reused code)
+ */
+function loginErrorCode(error: unknown): string {
+  if (error instanceof ForbiddenException) {
+    return 'account_not_allowed';
+  }
+  if (!(error instanceof GhanaWorksError)) {
+    return 'login_failed';
+  }
+  if (error.code === 'invalid_client') {
+    return 'invalid_client';
+  }
+  if (error.status === 429) {
+    return 'rate_limited';
+  }
+  if (error.status === 0 || error.status >= 500) {
+    return 'ghanaworks_unavailable';
+  }
+  return 'login_failed';
+}
+
+/** GhanaWorks' `?error=` goes into our redirect: keep it a plain code. */
+function sanitizeErrorCode(error: string): string {
+  return /^[A-Za-z0-9_.-]{1,64}$/.test(error) ? error : 'login_failed';
 }
 
 function readCookie(req: Request, name: string): string | undefined {
