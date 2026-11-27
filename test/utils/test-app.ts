@@ -52,19 +52,12 @@ export async function startTestApp(
   await ghanaWorks.start();
   ghanaWorks.redirectUri = REDIRECT_URI;
 
-  const mongoUrl = new URL(mongo.getUri());
   // Set before AppModule loads. Empty values stop a developer's .env from
   // leaking in: dotenv never overrides variables that already exist.
   Object.assign(process.env, {
     APP_ENV: 'test',
     LOG_LEVEL: 'fatal',
-    MONGODB_HOST: mongoUrl.hostname,
-    MONGODB_PORT: mongoUrl.port,
-    MONGODB_SRV: 'false',
-    MONGODB_DATABASE: database,
-    MONGODB_USERNAME: '',
-    MONGODB_PASSWORD: '',
-    MONGODB_OPTIONS: '',
+    MONGODB_URI: mongo.getUri(database),
     MONGODB_DNS_SERVERS: '',
     GHANAWORKS_URL: ghanaWorks.baseUrl,
     GHANAWORKS_CLIENT_ID: CLIENT_ID,

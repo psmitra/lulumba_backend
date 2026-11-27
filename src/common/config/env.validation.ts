@@ -12,7 +12,6 @@ import {
   Max,
   Min,
   ValidateBy,
-  ValidateIf,
   validateSync,
 } from 'class-validator';
 import { Environment } from '../enums/environment.enum.js';
@@ -39,48 +38,16 @@ export class EnvironmentVariables {
   @Max(65535)
   APP_PORT: number = 3000;
 
-  // Hostname only, e.g. `localhost` or `cluster0.xxxxx.mongodb.net`.
+  // Full MongoDB connection string, including credentials and database, e.g.
+  // `mongodb://user:pass@host:27017/lulumba?authSource=admin` or
+  // `mongodb+srv://user:pass@cluster0.xxxxx.mongodb.net/lulumba`. Special
+  // characters in the password must be URL-encoded.
   @IsString()
-  @IsNotEmpty()
-  @Matches(/^[^/:@?]+$/, {
-    message: 'MONGODB_HOST must be a bare hostname (no scheme, port or path)',
+  @Matches(/^mongodb(\+srv)?:\/\/\S+$/, {
+    message:
+      'MONGODB_URI must be a connection string starting with mongodb:// or mongodb+srv://',
   })
-  MONGODB_HOST: string;
-
-  @IsOptional()
-  @Transform(({ value }) =>
-    value === undefined || value === '' ? undefined : Number(value),
-  )
-  @IsInt()
-  @Min(1)
-  @Max(65535)
-  MONGODB_PORT?: number;
-
-  // true for Atlas-style `mongodb+srv://` connections.
-  @IsOptional()
-  @Transform(({ value }) => value === true || value === 'true')
-  @IsBoolean()
-  MONGODB_SRV: boolean = false;
-
-  @IsString()
-  @IsNotEmpty()
-  MONGODB_DATABASE: string = 'lulumba';
-
-  @IsOptional()
-  @IsString()
-  MONGODB_USERNAME?: string;
-
-  @ValidateIf((env: EnvironmentVariables) => !!env.MONGODB_USERNAME)
-  @IsString()
-  @IsNotEmpty({
-    message: 'MONGODB_PASSWORD is required when MONGODB_USERNAME is set',
-  })
-  MONGODB_PASSWORD?: string;
-
-  // Extra query string, e.g. `retryWrites=true&w=majority&authSource=admin`.
-  @IsOptional()
-  @IsString()
-  MONGODB_OPTIONS?: string;
+  MONGODB_URI: string;
 
   // Comma-separated DNS servers for SRV lookups, e.g. `8.8.8.8,1.1.1.1`. Only
   // needed when Node's default resolver can't resolve `mongodb+srv` records.
